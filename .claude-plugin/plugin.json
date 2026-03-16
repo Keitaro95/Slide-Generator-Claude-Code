@@ -1,0 +1,8 @@
+{
+  "name": "slide-generator",
+  "description": "Generate professional PowerPoint presentations from Markdown using a multi-agent AI workflow with scoring and refinement loops.",
+  "version": "1.0.0",
+  "author": {
+    "name": "keitarosasaki"
+  }
+}
