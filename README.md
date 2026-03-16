@@ -2,6 +2,18 @@
 
 mdファイルまたはPPTX+mdメモを受け取り、マルチエージェントワークフローでPowerPoint（.pptx）を自動生成するClaude Codeプラグイン。
 
+## install
+
+```        sh                                              
+                                                                                            
+  # マーケットプレイスとして追加                                                            
+  /plugin marketplace add Keitaro95/Slide-Generator-Claude-Code
+                                                                                            
+  # プラグインをインストール                                                                
+  /plugin install slide-generator@Keitaro95  
+
+```                                         
+
 ## 機能
 
 - Markdownからスライド構造を自動解析
