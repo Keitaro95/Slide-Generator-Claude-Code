@@ -1,0 +1,24 @@
+{
+  "name": "slide-generator",
+  "owner": {
+    "name": "keitarosasaki"
+  },
+  "metadata": {
+    "description": "Generate professional PowerPoint presentations from Markdown using a multi-agent AI workflow with scoring and refinement loops."
+  },
+  "plugins": [
+    {
+      "name": "slide-generator",
+      "source": {
+        "source": "github",
+        "repo": "Keitaro95/Slide-Generator-Claude-Code"
+      },
+      "description": "Generate professional PowerPoint presentations from Markdown using a multi-agent AI workflow with scoring and refinement loops.",
+      "author": {
+        "name": "keitarosasaki"
+      },
+      "keywords": ["powerpoint", "pptx", "slides", "markdown", "presentation", "pptxgenjs"],
+      "category": "productivity"
+    }
+  ]
+}

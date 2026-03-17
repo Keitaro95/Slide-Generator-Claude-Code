@@ -1,24 +1,69 @@
-# subagent-slidecode
+---
+name: subagent-pptxgen
+description: slideData配列を受け取り、PptxGenJSのNode.jsスクリプト(generate.js)を生成・実行して presentation.pptx を出力するサブエージェント。Claude Code CLI 上で動作する。
+---
 
-受け取った `slideData` 配列をもとに PptxGenJS の Node.js スクリプトを生成する。
+# subagent-pptxgen
+
+slideData 配列を受け取り、PptxGenJS で presentation.pptx を生成する。
+
+---
+
+## ワークフロー
+
+1. 親エージェントから `slideData` 配列（JSON）を受け取る
+2. 下記テンプレートの `/* __SLIDE_DATA__ */` 部分を受け取った slideData で置き換え、`generate.js` を書き出す
+3. `npm install pptxgenjs && node generate.js` を実行
+4. `presentation.pptx` が生成されたことを確認し、親エージェントに完了を報告
+
+---
+
+## 制約
+
+- テンプレートのロジック（関数・定数・メイン実行部）は **一切変更しない**
+- 変更して良いのは `slideData` 配列の中身 **のみ**
+- slideData の各オブジェクトは CLAUDE.md のスキーマに準拠すること
+- `LOGO` / `FOOTER_TEXT` は案件に合わせて書き換えて良い
+- 出力ファイル名はデフォルト `presentation.pptx`。親エージェントから指定があればそちらを使う
+
+---
 
 ## 入力
 
-`slideData` 配列（JSON）。スライドタイプ一覧：
-`title` / `section` / `content` / `compare` / `process` / `timeline` / `diagram` / `cards` / `table` / `progress` / `closing`
+`slideData` 配列（JSON）。対応スライドタイプ：
+
+| type | 必須フィールド | 任意フィールド |
+|------|--------------|--------------|
+| `title` | `title` | `date`, `notes` |
+| `section` | `title` | `sectionNo`, `notes` |
+| `content` | `title`, `points[]` | `subhead`, `twoColumn`, `columns[2][]`, `notes` |
+| `compare` | `title` | `subhead`, `leftTitle`, `rightTitle`, `leftItems[]`, `rightItems[]`, `notes` |
+| `process` | `title`, `steps[]` | `subhead`, `notes` |
+| `timeline` | `title`, `milestones[{label,date,state}]` | `subhead`, `notes` |
+| `diagram` | `title`, `lanes[{title,items[]}]` | `subhead`, `notes` |
+| `cards` | `title`, `items[{title,desc}]` | `subhead`, `columns`, `notes` |
+| `table` | `title`, `headers[]`, `rows[][]` | `subhead`, `notes` |
+| `progress` | `title`, `items[{label,percent}]` | `subhead`, `notes` |
+| `closing` | — | `notes` |
+
+インライン装飾: `[[青太字]]` / `**太字**`（`points`, `desc`, `steps`, `leftItems`, `rightItems` 内で有効）
+
+---
 
 ## 出力
 
-以下のテンプレートの `slideData` 部分のみを書き換えた `generate.js` を出力する。
-実行方法: `npm install pptxgenjs && node generate.js`
+`presentation.pptx`（カレントディレクトリ、または親エージェント指定パス）
 
-## テンプレート
+---
+
+## generate.js テンプレート
+
+以下を `generate.js` として書き出す。`/* __SLIDE_DATA__ */` の行を slideData 配列で置換する。
 
 ```javascript
 'use strict';
 /**
  * PptxGenJS スライド自動生成スクリプト
- * Version: 1.0 (Google Design Template — PptxGenJS Port)
  * 依存: npm install pptxgenjs
  * 実行: node generate.js
  */
@@ -26,7 +71,6 @@
 const PptxGenJS = require('pptxgenjs');
 
 // ─── 1. 定数 ────────────────────────────────────────────
-// 960×540px ベース → 10×5.625インチ (16:9)。1px = 1/96インチ
 const PX = n => +(n / 96).toFixed(4);
 
 const C = {
@@ -53,6 +97,7 @@ const FS = {
 
 const LOGO = 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Google_2015_logo.svg/1024px-Google_2015_logo.svg.png';
 const FOOTER_TEXT = `© ${new Date().getFullYear()} Your Organization`;
+const OUTPUT_FILE = 'presentation.pptx';
 
 // ─── 2. 位置定義 (px) ────────────────────────────────────
 const POS = {
@@ -92,15 +137,12 @@ function addBarFooter(slide, pg) { addBar(slide); addFooter(slide, pg); }
 function addHeader(slide, title) {
   const logo = px2rect(POS.header.logo);
   slide.addImage({ path: LOGO, x: logo.x, y: logo.y, w: logo.w, h: logo.h });
-
   const t = px2rect(POS.header.titleText);
   slide.addText(title || '', { ...t, fontFace: F, fontSize: FS.cTitle, bold: true, color: C.text, wrap: true });
-
   const u = px2rect(POS.header.underline);
   slide.addShape(PptxGenJS.ShapeType.rect, { ...u, fill: { color: C.blue }, line: noLine() });
 }
 
-// subhead がある場合は描画して dy=36px を返す。ない場合は 0
 function addSubhead(slide, subhead) {
   if (!subhead) return 0;
   const r = px2rect(POS.header.subhead);
@@ -108,7 +150,6 @@ function addSubhead(slide, subhead) {
   return 36;
 }
 
-// インライン記法 [[青太字]] / **太字** → PptxGenJS text runs
 function parseRuns(s, base = {}) {
   const bo = { fontFace: F, ...base };
   const runs = [];
@@ -129,7 +170,6 @@ function parseRuns(s, base = {}) {
   return runs.length ? runs : [{ text: '', options: bo }];
 }
 
-// 箇条書き配列 → PptxGenJS text runs（• プレフィックス付き）
 function makeBullets(points) {
   const base = { fontFace: F, fontSize: FS.body, color: C.text };
   const runs = [];
@@ -141,17 +181,8 @@ function makeBullets(points) {
   return runs.length ? runs : [{ text: '• —', options: base }];
 }
 
-// ─── 4. slideData（ここを書き換える） ────────────────────
-const slideData = [
-  { type: 'title', title: 'サンプルプレゼンテーション', date: '2025.08.12', notes: '本日はお集まりいただきありがとうございます。' },
-  { type: 'section', title: '1. はじめに', notes: '最初のセクションです。' },
-  { type: 'cards', title: 'Google風デザインのテスト', subhead: 'モダンなデザインパターン', columns: 3, items: [
-    { title: 'パターン1', desc: '現状：[[重要機能]]実装済み\n課題：パフォーマンス**最適化**が必要' },
-    { title: 'パターン2', desc: '現状：デザイン更新完了\n課題：[[ユーザビリティ改善]]を検討' },
-    { title: 'パターン3', desc: '現状：テスト環境構築\n課題：**本番環境への移行準備**' },
-  ], notes: 'カード形式のスライドです。' },
-  { type: 'closing', notes: '以上で説明を終わります。' },
-];
+// ─── 4. slideData ────────────────────────────────────────
+/* __SLIDE_DATA__ */
 
 // ─── 5. スライド生成関数群 ────────────────────────────────
 function createTitleSlide(slide, data) {
@@ -409,7 +440,7 @@ function createProgressSlide(slide, data, pg) {
 function createClosingSlide(slide) {
   slide.background = { color: C.white };
   const imgW = PX(450);
-  const imgH = imgW * (120 / 361); // Google logo aspect ratio
+  const imgH = imgW * (120 / 361);
   slide.addImage({ path: LOGO, x: (10 - imgW) / 2, y: (5.625 - imgH) / 2, w: imgW, h: imgH });
 }
 
@@ -424,41 +455,43 @@ function createClosingSlide(slide) {
     if (data.type !== 'title' && data.type !== 'closing') pg++;
 
     switch (data.type) {
-      case 'title':    createTitleSlide(slide, data);            break;
+      case 'title':    createTitleSlide(slide, data);                 break;
       case 'section':  createSectionSlide(slide, data, ++secNum, pg); break;
-      case 'content':  createContentSlide(slide, data, pg);      break;
-      case 'compare':  createCompareSlide(slide, data, pg);      break;
-      case 'process':  createProcessSlide(slide, data, pg);      break;
-      case 'timeline': createTimelineSlide(slide, data, pg);     break;
-      case 'diagram':  createDiagramSlide(slide, data, pg);      break;
-      case 'cards':    createCardsSlide(slide, data, pg);        break;
-      case 'table':    createTableSlide(slide, data, pg);        break;
-      case 'progress': createProgressSlide(slide, data, pg);     break;
-      case 'closing':  createClosingSlide(slide);                break;
+      case 'content':  createContentSlide(slide, data, pg);           break;
+      case 'compare':  createCompareSlide(slide, data, pg);           break;
+      case 'process':  createProcessSlide(slide, data, pg);           break;
+      case 'timeline': createTimelineSlide(slide, data, pg);          break;
+      case 'diagram':  createDiagramSlide(slide, data, pg);           break;
+      case 'cards':    createCardsSlide(slide, data, pg);             break;
+      case 'table':    createTableSlide(slide, data, pg);             break;
+      case 'progress': createProgressSlide(slide, data, pg);          break;
+      case 'closing':  createClosingSlide(slide);                     break;
     }
 
     if (data.notes) slide.addNotes(data.notes);
   }
 
-  await pptx.writeFile({ fileName: 'presentation.pptx' });
-  console.log('生成完了: presentation.pptx');
+  await pptx.writeFile({ fileName: OUTPUT_FILE });
+  console.log(`生成完了: ${OUTPUT_FILE}`);
 })();
 ```
 
-## slideData スキーマ早見表
+---
 
-| type | 必須フィールド | 任意フィールド |
-|------|--------------|--------------|
-| `title` | `title` | `date`, `notes` |
-| `section` | `title` | `sectionNo`, `notes` |
-| `content` | `title`, `points[]` | `subhead`, `twoColumn`, `columns[2][]`, `notes` |
-| `compare` | `title` | `subhead`, `leftTitle`, `rightTitle`, `leftItems[]`, `rightItems[]`, `notes` |
-| `process` | `title`, `steps[]` | `subhead`, `notes` |
-| `timeline` | `title`, `milestones[{label,date,state}]` | `subhead`, `notes` |
-| `diagram` | `title`, `lanes[{title,items[]}]` | `subhead`, `notes` |
-| `cards` | `title`, `items[{title,desc}]` | `subhead`, `columns`, `notes` |
-| `table` | `title`, `headers[]`, `rows[][]` | `subhead`, `notes` |
-| `progress` | `title`, `items[{label,percent}]` | `subhead`, `notes` |
-| `closing` | — | `notes` |
+## 実行手順
 
-インライン装飾: `[[青太字]]` / `**太字**`
+```bash
+npm install pptxgenjs
+node generate.js
+```
+
+---
+
+## エラー時の対応
+
+| エラー | 対処 |
+|--------|------|
+| `Cannot find module 'pptxgenjs'` | `npm install pptxgenjs` を実行 |
+| `TypeError: Cannot read properties of undefined` | slideData のフィールドが CLAUDE.md スキーマに準拠しているか確認 |
+| `LOGO 取得エラー` | ネットワーク接続を確認、またはローカルパスに差し替え |
+| ファイル書き込み権限エラー | 出力先ディレクトリの権限を確認 |

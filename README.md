@@ -1,18 +1,20 @@
 # Slide Generator — Claude Code Plugin
 
+まじんプロンプト
+Deck github go(スライド生成) ＝ハンガリーアルゴリズム
+
+
 mdファイルまたはPPTX+mdメモを受け取り、マルチエージェントワークフローでPowerPoint（.pptx）を自動生成するClaude Codeプラグイン。
 
 ## install
 
-```        sh                                              
-                                                                                            
-  # マーケットプレイスとして追加                                                            
-  /plugin marketplace add Keitaro95/Slide-Generator-Claude-Code
-                                                                                            
-  # プラグインをインストール                                                                
-  /plugin install slide-generator@Keitaro95  
+```sh
+# 1. マーケットプレイスとして追加
+/plugin marketplace add Keitaro95/Slide-Generator-Claude-Code
 
-```                                         
+# 2. プラグインをインストール
+/plugin install slide-generator@slide-generator
+```
 
 ## 機能
 
@@ -70,7 +72,8 @@ cp -r forclaude/subagents/* ~/.claude/agents/
 ```
 slide-generator/
 ├── .claude-plugin/
-│   └── plugin.json          # プラグインマニフェスト
+│   ├── plugin.json          # プラグインマニフェスト
+│   └── marketplace.json     # マーケットプレイス定義
 ├── skills/
 │   └── slide-generator/
 │       └── SKILL.md         # メインスキル定義
@@ -94,3 +97,7 @@ slide-generator/
 ```bash
 npm install pptxgenjs
 ```
+
+
+
+
