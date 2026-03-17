@@ -1,9 +1,5 @@
 # Slide Generator — Claude Code Plugin
 
-まじんプロンプト
-Deck github go(スライド生成) ＝ハンガリーアルゴリズム
-
-
 mdファイルまたはPPTX+mdメモを受け取り、マルチエージェントワークフローでPowerPoint（.pptx）を自動生成するClaude Codeプラグイン。
 
 ## install
