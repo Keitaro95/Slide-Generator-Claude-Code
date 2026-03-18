@@ -226,3 +226,14 @@
 | `table` | `title`, `headers[]`, `rows[][]` | `subhead`, `notes` |
 | `progress` | `title`, `items[{label,percent}]` | `subhead`, `notes` |
 | `closing` | — | `notes` |
+
+---
+
+## PptxGenJS プロジェクトルール
+
+- layout: `"LAYOUT_WIDE"`（13.33 x 7.5 インチ）を標準とする
+- 日本語テキストは必ず `fontFace: "Meiryo"`, `lang: "ja-JP"` を指定
+- カラーは `"#"` なし 6 桁 hex。fill は `{ color: "hex" }` オブジェクト形式
+- shadow オブジェクトは呼び出しごとにファクトリ関数で新規生成
+- 画像パスはプロジェクトルートからの相対パスを使用
+- `ROUNDED_RECTANGLE` にアクセントボーダーを重ねない（角丸で隙間が生じる）
