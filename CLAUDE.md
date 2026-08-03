@@ -1,14 +1,81 @@
 # Slide Generator — CLAUDE.md
 
-## slideData オブジェクト スキーマ
+## エージェントパイプライン
 
-`generate.js` の `slideData` 配列に渡す各オブジェクトの形。
+```
+[0ocr]  → A: subagent-structure → B: subagent-design → C: subagent-pptxgen
+既存PPTX   agents/2coding.md      agents/3scoring.md    agents/4pptxgen.md
+→slideData 構造化・レイアウト・座標  色・強調マークアップ   generate.js 生成＋実行
+           → SPEC(JSON)          → SPEC(マークアップ付き) → presentation.pptx
+```
+
+| 段 | 責務 | やってはいけないこと |
+|---|---|---|
+| A | 内容の構造化、テンプレート選択、**全要素の座標算出**、文字規約 | 色・強調の付与（Bの責務） |
+| B | 意味色・強調マークアップ・図形スタイル・装飾 | **座標の変更**、テキストの意味変更（Aの責務） |
+| C | SPEC をテンプレートに埋め込み描画・実行 | レイアウト補正・デザイン判断 |
+
+---
+
+## SPEC（デザイン構造化JSON）— A/B/C 共通の契約
+
+```json
+{
+  "meta": {
+    "title": "…", "date": "YYYY.MM.DD", "output": "presentation.pptx",
+    "theme": { "accent": "4285F4", "font": "Meiryo", "logo": "…", "footerText": "…",
+               "colors": { "blue": "4285F4", "red": "EA4335", "…": "…" } }
+  },
+  "slides": [{
+    "slideIndex": 0, "type": "content", "page": 1, "background": "white",
+    "layout": { "template": "A", "description": "…", "regions": { "body": { "x": 0, "y": 0, "w": 0, "h": 0 } } },
+    "elements": [{
+      "id": "body-bullets", "role": "body",
+      "method": "addText",              // addText | addShape | addImage | addTable
+      "shape": "rect",                  // addShape 時のみ
+      "content": ["…"],                 // 文字列 / 配列 / {headers,rows}
+      "format": "bullets",              // plain | runs | bullets
+      "props": { "x": 0.5, "y": 2.16, "w": 12.33, "h": 4.42, "fontSize": 16, "color": "text" }
+    }],
+    "arrows": [], "notes": "…",
+    "calculations": {}, "boundsCheck": { "allWithinBounds": true, "violations": [] }
+  }],
+  "designReport": { "…": "Bのみ付与。描画には使わない" }
+}
+```
+
+- 色は **パレットキー**（`accent` / `text` / `red` / `green` / `neutral` …）か **`#`なし6桁hex**
+- `props.fill` は文字列指定可（C側で `{ color }` に変換）／枠線不要は `"line": "none"`
+- 座標はインチ実寸。スライドは **13.33" × 7.5"**（LAYOUT_WIDE）
+
+---
+
+## インラインマークアップ仕様
+
+B が付与し、C の `parseRuns()` が解釈する。
+
+| 記法 | 効果 |
+|---|---|
+| `**テキスト**` | 太字 |
+| `[[テキスト]]` | 太字＋アクセント色 |
+| `{c:NAME\|テキスト}` | 文字色（NAME = パレットキー or 6桁hex） |
+| `{hl:NAME\|テキスト}` | 蛍光マーカー |
+
+- `[[ ]]` `{ }` は1段ネスト可（`{hl:yellow|{c:red|要決裁}}`）。`**` はネスト不可
+- 閉じ記号が無いトークンはプレーン文字として描画される
+- 黄色は文字色に使わない（白背景でコントラスト不足）。`{hl:yellow|…}` を使う
+
+---
+
+## slideData オブジェクト スキーマ（0ocr の出力形式）
+
+既存PPTXを読み取る `0ocr` が出力し、A が SPEC へ変換する中間表現。
 
 ### 共通ルール
 
 - `notes` は全タイプで任意（スライドノートに入る）
 - `subhead` は `title` / `section` / `closing` 以外で使用可
-- インライン装飾：`[[青太字]]` / `**太字**`（`points`, `desc`, `steps`, `leftItems`, `rightItems` 内で有効）
+- インライン装飾は 0ocr / A では付けない（B の責務）
 
 ---
 
@@ -231,9 +298,11 @@
 
 ## PptxGenJS プロジェクトルール
 
-- layout: `"LAYOUT_WIDE"`（13.33 x 7.5 インチ）を標準とする
+- layout: `"LAYOUT_WIDE"`（13.33 x 7.5 インチ）を標準とする。**座標は必ず 13.33 x 7.5 を基準に算出する**（960px=10インチ相当のグリッドを流用しない）
 - 日本語テキストは必ず `fontFace: "Meiryo"`, `lang: "ja-JP"` を指定
 - カラーは `"#"` なし 6 桁 hex。fill は `{ color: "hex" }` オブジェクト形式
+- `ShapeType` は **インスタンス経由**で参照する（`pptx.ShapeType.rect`）。pptxgenjs v4 では `PptxGenJS.ShapeType` は存在しない。文字列 `'rect'` の直接指定も可
+- 図形に枠線が不要なときは `line: { type: 'none' }` を明示（未指定だと黒枠が出る）
 - shadow オブジェクトは呼び出しごとにファクトリ関数で新規生成
-- 画像パスはプロジェクトルートからの相対パスを使用
-- `ROUNDED_RECTANGLE` にアクセントボーダーを重ねない（角丸で隙間が生じる）
+- 画像パスは `generate.js` からの相対パスを使用
+- `roundRect` にアクセントボーダーを重ねない（角丸で隙間が生じる）

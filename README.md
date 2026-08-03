@@ -30,9 +30,9 @@ claude --plugin-dir ./path/to/slide-generator
 ## 機能
 
 - mdファイル・既存PPTX・テキスト貼り付けの3種類の入力に対応
-- PptxGenJSによるスライド自動生成
+- **構造（A）→ デザイン（B）→ 描画（C）** の3段エージェントパイプライン
 - 11種類のスライドレイアウト（title / section / content / compare / process / timeline / diagram / cards / table / progress / closing）
-- ハンガリアンアルゴリズムによる品質スコアリング＋自動リファインメントループ
+- 意味色＋インラインマークアップ（`[[アクセント]]` / `**太字**` / `{c:red|文字色}` / `{hl:yellow|マーカー}`）で本文を装飾
 - デザインガイドラインファイル指定でカラー・フォント・レイアウトを統一適用
 
 ## 使い方
@@ -49,25 +49,39 @@ claude --plugin-dir ./path/to/slide-generator
 
 ## エージェントワークフロー
 
-### フェーズ1：スライド理解（PPTX入力時のみ）
+```
+[Step 0] 0ocr  →  A: 2coding  →  B: 3scoring  →  C: 4pptxgen
+既存PPTX読取      構造化・座標     色・マークアップ    generate.js 実行
+→ slideData      → SPEC(JSON)   → SPEC(装飾付き)   → presentation.pptx
+```
+
+### Step 0：スライド理解（PPTX入力時のみ）
 
 | エージェント | 役割 |
 |------------|------|
 | `slide-ocr`（`0ocr.md`） | 既存PPTXのテキスト・レイアウトを読み取り、slideData配列の雛形を生成 |
 
-### フェーズ2：スライド戦略・slideData生成
+### A：デザイン構造化
 
 | エージェント | 役割 |
 |------------|------|
-| `conductor`（`1conductor.md`） | 入力テキストをコンテキスト分解→正規化→パターン選定→ストーリー再構築→slideData生成→スピーカーノート生成→自己検証 |
+| `subagent-structure`（`2coding.md`） | コンテキスト分解→パターン選定→ストーリー再構築→レイアウトテンプレート選択→**全要素の座標算出**→文字規約適用→SPEC（JSON）出力 |
 
-### フェーズ3：コード生成・スコアリング・PPTX出力
+この段階のテキストはプレーン。色・強調は付けない。
+
+### B：デザイン調整
 
 | エージェント | 役割 |
 |------------|------|
-| `subagent-slidecode`（`2coding.md`） | slideDataをPptxGenJSテンプレートに埋め込んだ`generate.js`を生成 |
-| `subagent-scoring`（`3scoring.md`） | ハンガリアンアルゴリズムでスライド品質をスコアリング（閾値未満ならフェーズ2〜3をループ） |
-| `subagent-pptxgen`（`4pptxgen.md`） | `generate.js`を実行し`presentation.pptx`を出力 |
+| `subagent-design`（`3scoring.md`） | 意味色の割り当て→インラインマークアップ付与→図形スタイル調整→装飾追加→全ページ統一性の点検→`designReport` 出力 |
+
+座標は変更しない。強調は1スライド最大3箇所・本文の20%以下。
+
+### C：PPTX出力
+
+| エージェント | 役割 |
+|------------|------|
+| `subagent-pptxgen`（`4pptxgen.md`） | SPECをレンダラーテンプレートに埋め込み`generate.js`を生成→preflight検証→実行→`presentation.pptx`を出力 |
 
 ## ディレクトリ構成
 
@@ -77,15 +91,16 @@ slide-generator/
 │   ├── plugin.json          # プラグインマニフェスト
 │   └── marketplace.json     # マーケットプレイス定義
 ├── skills/
-│   └── slide-generator/
-│       └── SKILL.md         # メインスキル定義
+│   ├── slide-generator/
+│   │   └── SKILL.md         # メインスキル定義
+│   └── refactoring-slides/
+│       └── SKILL.md         # 既存PPTX更新時のスライド対応付け
 ├── agents/                  # サブエージェント群
 │   ├── 0ocr.md              # slide-ocr
-│   ├── 1conductor.md        # conductor
-│   ├── 2coding.md           # subagent-slidecode
-│   ├── 3scoring.md          # subagent-scoring
-│   └── 4pptxgen.md          # subagent-pptxgen
-└── CLAUDE.md                # slideDataスキーマ定義
+│   ├── 2coding.md           # A: subagent-structure
+│   ├── 3scoring.md          # B: subagent-design
+│   └── 4pptxgen.md          # C: subagent-pptxgen
+└── CLAUDE.md                # SPEC・マークアップ・slideDataスキーマ定義
 ```
 
 ## 依存関係

@@ -38,7 +38,7 @@ mdファイル、またはPPTX+mdメモを受け取り、エージェントワ�
 全部まとめて一度に聞いてもよい。ユーザーが既に答えている項目は聞き直さない。
 
 > **デザインガイドラインファイルが指定された場合：**
-> 以降の全フェーズ（特にフェーズ2の design-conductor、フェーズ3の subagent-slidecode）で、ガイドラインに定義されたカラーパレット・フォント・余白・レイアウトルールを厳守する。Content.theme の初期値としてガイドラインの内容を読み込み、各サブエージェントにもガイドラインファイルのパスを渡すこと。
+> ガイドラインに定義されたカラーパレット・フォント・余白・レイアウトルールを全段で厳守する。Step A で `meta.theme` の初期値として読み込み、Step B にもガイドラインファイルのパスを渡すこと（配色・意味色はガイドラインが最優先）。
 
 ### Step 0-3 — 確認と開始
 
@@ -54,37 +54,46 @@ mdファイル、またはPPTX+mdメモを受け取り、エージェントワ�
 
 ---
 
-## Content オブジェクト
+## SPEC オブジェクト
 
-全フェーズを通じてデータを保持する中央オブジェクト。
+A → B → C を貫いて受け渡される中央オブジェクト（詳細は `CLAUDE.md`）。
 
 ```json
 {
   "meta": {
-    "title": "",
-    "date": "",
-    "audience": "",
-    "style": ""
+    "title": "", "date": "", "audience": "", "output": "presentation.pptx",
+    "theme": { "accent": "4285F4", "font": "Meiryo", "logo": "", "footerText": "", "colors": {} }
   },
-  "sections": [
+  "slides": [
     {
+      "slideIndex": 0,
       "type": "title | section | content | compare | process | timeline | diagram | cards | table | progress | closing",
-      "title": "",
-      "subhead": "",
-      "points": [],
-      "notes": ""
+      "page": 1,
+      "background": "white",
+      "layout": { "template": "A", "description": "", "regions": {} },
+      "elements": [{ "id": "", "role": "", "method": "addText", "content": "", "format": "plain", "props": {} }],
+      "arrows": [],
+      "notes": "",
+      "boundsCheck": { "allWithinBounds": true, "violations": [] }
     }
   ],
-  "theme": {
-    "colors": {},
-    "fonts": {}
-  }
+  "designReport": {}
 }
 ```
 
+- **A** が `meta` / `slides`（座標・プレーンテキスト）を生成
+- **B** が `elements[].content` にマークアップを付与し `designReport` を追加
+- **C** は SPEC を描画するのみ
+
 ---
 
-## エージェントワークフロー（agents/ の番号順に実行）
+## エージェントワークフロー（A → B → C）
+
+```
+[Step 0: 0ocr] → A: 2coding.md → B: 3scoring.md → C: 4pptxgen.md
+ 既存PPTX読取     構造・レイアウト   色・強調マークアップ  generate.js 実行
+ → slideData      → SPEC(JSON)     → SPEC(装飾付き)     → presentation.pptx
+```
 
 ### Step 0 — slide-ocr（`agents/0ocr.md`）※PPTX入力のときのみ
 
@@ -94,81 +103,78 @@ mdファイル、またはPPTX+mdメモを受け取り、エージェントワ�
 
 ---
 
-### Step 1 — subagent-instruct（`agents/1instruct.md`）
+### Step A — subagent-structure（`agents/2coding.md`）
 
-`subagent-instruct` サブエージェントを起動。
-入力テキスト（md / 貼り付けテキスト / Step 0 の OCR 結果）を受け取り、以下を実行する：
+`subagent-structure` サブエージェントを起動。
+入力テキスト（md / 貼り付けテキスト / Step 0 の OCR 結果）から、**デザイン構造化JSON（SPEC）**を生成する：
 
-1. **コンテキスト分解・正規化** — 目的・意図・聞き手を把握し、章→節→要点の階層にマッピング。表記を統一
+1. **コンテキスト分解・正規化** — 目的・意図・聞き手を把握し、章→節→要点の階層にマッピング
 2. **パターン選定・ストーリー再構築** — 章・節ごとに最適なスライドタイプを選定し、説得ラインへ再配列
-3. **構成指示書生成** — 各スライド1枚ごとの全体構成指示書（レイアウト計画・要素配置・座標計算）をJSON配列で生成
+3. **レイアウト確定・座標算出** — テンプレート（A〜H）を選び、全要素の座標を LAYOUT_WIDE（13.33" × 7.5"）上で算術導出
+4. **文字規約の適用** — 字数上限・体言止め・禁止記号
 
-座標は LAYOUT_WIDE（13.33" × 7.5"）上で算術的に導出し、境界検証・間隔検証済みの精密な値を出力する。
-
----
-
-### Step 2 — subagent-precisecode（`agents/2coding.md`）
-
-`subagent-precisecode` サブエージェントを起動。
-Step 1 の構成指示書JSONを受け取り、座標値をそのまま忠実にハードコードした精密な PptxGenJS `generate.js` を生成する。
+この段階のテキストは**プレーン**（強調記法なし）。デザインガイドラインファイルが指定されていれば `meta.theme` に反映する。
 
 ---
 
-### Step 3 — subagent-scoring（`agents/3scoring.md`）＋品質改善ループ
+### Step B — subagent-design（`agents/3scoring.md`）
 
-`subagent-scoring` サブエージェントを起動。
-Step 1 の構成指示書JSONを**5軸**でデザイン品質スコアリングする。
+`subagent-design` サブエージェントを起動。
+Step A の SPEC に**デザインだけを上乗せ**する：
 
-| 軸 | 配点 | 観点 |
-|---|---|---|
-| Cross-Slide Consistency（統一性） | 40点 | 複数ページ間でヘッダー・フッター・マージン・フォントが揃っているか |
-| Layout Balance（バランス） | 20点 | 左右対称性・余白の均等性・コンテンツの偏り |
-| Readability（可読性） | 20点 | フォントサイズ下限・テキスト量・コントラスト |
-| Visual Hierarchy（視覚階層） | 10点 | タイトル > サブヘッド > 本文のサイズ順序 |
-| Bounds Integrity（境界整合） | 10点 | はみ出し・重なり・最低間隔 |
+| 作業 | 内容 |
+|---|---|
+| 意味色の割り当て | リスク＝赤 / 成果＝緑 / 注意＝黄マーカー / キーメッセージ＝アクセント |
+| 強調マークアップ | `**太字**` `[[アクセント]]` `{c:red\|…}` `{hl:yellow\|…}` を本文に付与 |
+| 図形スタイル | パネル・カード・タイムライン状態色・進捗バー色・テーブル罫線 |
+| 装飾追加 | 山場スライドのみ最大2件（`deco-` プレフィックス） |
+| 統一性点検 | 全ページで同一 role の座標・スタイル・意味色が一致しているか |
 
-#### スコアリング結果のユーザー提示
+**座標は変更しない**（レイアウトは A の確定事項）。強調は1スライド最大3箇所・本文の20%以下。
 
-スコアリング完了後、**必ずユーザーにスコアリング結果を提示**する。以下の形式で表示：
+#### デザイン所見のユーザー提示
+
+Step B 完了後、`designReport` を必ずユーザーに提示する：
 
 ```
-📊 デザイン品質スコアリング結果
+🎨 デザイン調整レポート
 ━━━━━━━━━━━━━━━━━━━━━━━━━
-総合スコア: XX / 100 点
-判定: pass / fix / reject
+アクセント: #4285F4
+意味色: リスク=赤 / コスト削減効果=緑 / 重点施策=アクセント
+強調箇所: P2:3 / P3:2 / P4:1（上限3）
+山場スライド: P2, P7（装飾1件追加）
 
-  統一性:    XX/40
-  バランス:  XX/20
-  可読性:    XX/20
-  視覚階層:  XX/10
-  境界整合:  XX/10
+セルフチェック:
+  強調予算 ✓ / コントラスト ✓ / 統一性 ✓ / 境界 ✓ / 記法整合 ✓
 
-違反事項: （あれば列挙）
+申し送り（issues）:
+  [warn] P5 右カラムが8項目で密度過多 → 2枚分割を推奨
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-#### recommendation による分岐（品質改善ループ）
+#### issues による分岐
 
-| recommendation | 条件 | アクション |
-|---|---|---|
-| `"pass"` | totalScore ≥ 80 かつ error 0件 | ユーザーに「合格」を通知し、Step 4 へ進む |
-| `"fix"` | totalScore ≥ 70 または error 1件以上 | ユーザーに violations を提示し、**Step 1（instruct）→ Step 2（coding）→ Step 3（scoring）** を再実行する。violations の内容を instruct に渡して座標修正を指示する |
-| `"reject"` | totalScore < 70 | ユーザーに不合格を通知し、**Step 1（instruct）からやり直し**。構成指示書を根本的に再生成し、Step 2→Step 3 を再実行する |
+| 状況 | アクション |
+|---|---|
+| `checks` が全て pass、issues なし | Step C へ進む |
+| `issues` に `warn` のみ | 内容を提示し、続行するか A に差し戻すかユーザーに確認 |
+| `issues` に `error`（境界違反・項目過多など構造的問題） | **Step A に差し戻し**、該当スライドのレイアウトを再算出 → B を再実行 |
 
-**ループの上限**: 最大3回まで再試行する。3回再試行しても pass にならない場合、現時点のスコアと violations をユーザーに提示し、「このまま続行するか、手動で修正するか」を確認する。
+**ループ上限**: 差し戻しは最大2回。解消しない場合は現状の issues を提示し、続行可否をユーザーに確認する。
 
 ---
 
-### Step 4 — subagent-pptxgen（`agents/4pptxgen.md`）
+### Step C — subagent-pptxgen（`agents/4pptxgen.md`）
 
 `subagent-pptxgen` サブエージェントを起動。
-Step 2 で生成された `generate.js` を `npm install pptxgenjs && node generate.js` で実行し `presentation.pptx` を出力する。
+Step B の SPEC をレンダラーテンプレートに埋め込んだ `generate.js` を書き出し、`npm install pptxgenjs && node generate.js` を実行して `presentation.pptx` を出力する。
+実行前に preflight 検証（境界・必須キー・マークアップ開閉）を行い、結果を報告する。
 
 ---
 
 ### 既存PPTX更新時の追加ステップ
 
-既存PPTXを更新する場合（Step 0 でOCRを実行した場合）、Step 1 の前に **`refactoring-slides`** スキル（`skills/refactoring-slides/SKILL.md`）を呼び出し、before/after スライドのハンガリアンアルゴリズムによる最適マッピングを行う。対応関係は Step 1 以降に引き継がれ、既存スライドのデザイン要素を可能な限り維持する。
+既存PPTXを更新する場合（Step 0 でOCRを実行した場合）、Step A の前に **`refactoring-slides`** スキル（`skills/refactoring-slides/SKILL.md`）を呼び出し、before/after スライドのハンガリアンアルゴリズムによる最適マッピングを行う。対応関係は Step A 以降に引き継がれ、既存スライドのデザイン要素を可能な限り維持する。
 
 ---
 

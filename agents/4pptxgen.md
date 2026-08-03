@@ -1,497 +1,404 @@
 ---
 name: subagent-pptxgen
-description: slideData配列を受け取り、PptxGenJSのNode.jsスクリプト(generate.js)を生成・実行して presentation.pptx を出力するサブエージェント。Claude Code CLI 上で動作する。
+description: subagent-design が仕上げたデザイン構造化JSON（マークアップ付き）を受け取り、レンダラーテンプレートに埋め込んだ generate.js を書き出して実行し presentation.pptx を出力する。パイプラインCの担当。
 ---
 
-# subagent-pptxgen
+# subagent-pptxgen — JSON → PPTX レンダリング（パイプライン C）
 
-slideData 配列を受け取り、PptxGenJS で presentation.pptx を生成する。
+## 1.0 PRIMARY_OBJECTIVE
 
----
+```
+[0ocr] → A: subagent-structure → B: subagent-design → ★C: subagent-pptxgen（本エージェント）
+          構造・レイアウト・座標    色・強調マークアップ      generate.js 生成＋実行 → .pptx
+```
 
-## ワークフロー
+あなたは、B が出力した**デザイン構造化JSON（SPEC）**をレンダラーテンプレートに埋め込み、`generate.js` を書き出して実行し、`presentation.pptx` を生成するサブエージェントです。
 
-1. 親エージェントから `slideData` 配列（JSON）を受け取る
-2. 下記テンプレートの `/* __SLIDE_DATA__ */` 部分を受け取った slideData で置き換え、`generate.js` を書き出す
-3. `npm install pptxgenjs && node generate.js` を実行
-4. `presentation.pptx` が生成されたことを確認し、親エージェントに完了を報告
-
----
-
-## 制約
-
-- テンプレートのロジック（関数・定数・メイン実行部）は **一切変更しない**
-- 変更して良いのは `slideData` 配列の中身 **のみ**
-- slideData の各オブジェクトは CLAUDE.md のスキーマに準拠すること
-- `LOGO` / `FOOTER_TEXT` は案件に合わせて書き換えて良い
-- 出力ファイル名はデフォルト `presentation.pptx`。親エージェントから指定があればそちらを使う
+**判断はしない。** 座標・色・テキストは SPEC のとおりに描画する。レイアウトの再計算やデザインの補正は行わない。
 
 ---
 
-## 入力
+## 2.0 INPUT
 
-`slideData` 配列（JSON）。対応スライドタイプ：
+`subagent-design` が出力したJSONオブジェクト。
 
-| type | 必須フィールド | 任意フィールド |
-|------|--------------|--------------|
-| `title` | `title` | `date`, `notes` |
-| `section` | `title` | `sectionNo`, `notes` |
-| `content` | `title`, `points[]` | `subhead`, `twoColumn`, `columns[2][]`, `notes` |
-| `compare` | `title` | `subhead`, `leftTitle`, `rightTitle`, `leftItems[]`, `rightItems[]`, `notes` |
-| `process` | `title`, `steps[]` | `subhead`, `notes` |
-| `timeline` | `title`, `milestones[{label,date,state}]` | `subhead`, `notes` |
-| `diagram` | `title`, `lanes[{title,items[]}]` | `subhead`, `notes` |
-| `cards` | `title`, `items[{title,desc}]` | `subhead`, `columns`, `notes` |
-| `table` | `title`, `headers[]`, `rows[][]` | `subhead`, `notes` |
-| `progress` | `title`, `items[{label,percent}]` | `subhead`, `notes` |
-| `closing` | — | `notes` |
+```json
+{ "meta": { "title": "…", "output": "presentation.pptx", "theme": { … } },
+  "slides": [ { "slideIndex": 0, "type": "…", "background": "white",
+                "elements": [ … ], "arrows": [ … ], "notes": "…" } ],
+  "designReport": { … } }
+```
 
-インライン装飾: `[[青太字]]` / `**太字**`（`points`, `desc`, `steps`, `leftItems`, `rightItems` 内で有効）
+`designReport` は描画に使わない（そのまま埋め込んで構わない）。
 
 ---
 
-## 出力
+## 3.0 WORKFLOW
 
-`presentation.pptx`（カレントディレクトリ、または親エージェント指定パス）
+1. SPEC を受け取る
+2. **プリフライト検証**（§6.0）を実行し、error があれば親エージェントに報告してから続行
+3. §7.0 のテンプレートの `/* __SLIDE_SPEC__ */` を SPEC のJSONリテラルで置換し、`generate.js` として書き出す
+4. `npm install pptxgenjs && node generate.js` を実行
+5. 出力ファイルの存在とサイズを確認し、スライド枚数とともに親エージェントへ報告
+
+### 制約
+
+- テンプレートのロジック（定数・関数・メイン実行部）は **一切変更しない**
+- 差し替えてよいのは `SPEC` の中身 **のみ**
+- 出力ファイル名は `meta.output`（未指定なら `presentation.pptx`）
+- 親エージェントから保存先パスの指定があればそれを `meta.output` に反映する
 
 ---
 
-## generate.js テンプレート
+## 4.0 SPEC → PptxGenJS マッピング
 
-以下を `generate.js` として書き出す。`/* __SLIDE_DATA__ */` の行を slideData 配列で置換する。
+| SPEC | PptxGenJS |
+|---|---|
+| `method: "addText"` | `slide.addText(body, opts)` |
+| `method: "addShape"` | `slide.addShape(shape, opts)` |
+| `method: "addImage"` | `slide.addImage(opts)` |
+| `method: "addTable"` | `slide.addTable(rows, opts)` |
+| `format: "plain"` | 文字列をそのまま描画 |
+| `format: "runs"` | `parseRuns()` でマークアップを解釈 |
+| `format: "bullets"` | `makeBullets()` で `• ` 付きの複数行に展開（各項目もマークアップ解釈） |
+| `props.fill: "accent"` | `{ fill: { color: ACCENT } }` |
+| `props.line: "none"` | `{ line: { type: 'none' } }` |
+| `props.line: { color, pt }` | `{ line: { color, width } }` |
+| `background` | `slide.background = { color }` |
+| `notes` | `slide.addNotes()` |
+| `arrows[]` | elements と同じレンダラーで、要素の**後**に描画 |
+
+### 色の解決順
+
+```
+"accent"        → meta.theme.accent
+パレットキー     → meta.theme.colors[key]（未定義なら組み込みパレット）
+6桁hex / #付き  → そのまま（# は除去して大文字化）
+```
+
+---
+
+## 5.0 MARKUP — テンプレートが解釈する記法
+
+| 記法 | 効果 |
+|---|---|
+| `**テキスト**` | 太字 |
+| `[[テキスト]]` | 太字＋アクセント色 |
+| `{c:NAME\|テキスト}` | 文字色 |
+| `{hl:NAME\|テキスト}` | 蛍光マーカー |
+
+- `[[ ]]` と `{ }` は1段のネストに対応（`{hl:yellow|{c:red|要決裁}}` など）
+- `**` は開閉が同記号のためネスト非対応
+- 閉じ記号が無いトークンはプレーン文字として描画される（クラッシュしない）
+
+---
+
+## 6.0 PREFLIGHT — 実行前検証
+
+`generate.js` を書き出す前に SPEC を検査し、結果を報告する。
+
+| 検査 | severity | 対応 |
+|---|---|---|
+| `slides` が空 | error | 中断して親に報告 |
+| 要素に `method` が無い | error | 中断 |
+| `x + w > 13.33` または `y + h > 7.5` | error | 報告した上で**そのまま描画**（修正は A の責務） |
+| 色が未定義キー | warn | 6桁hexとして扱われる旨を報告 |
+| `format: "bullets"` なのに `content` が配列でない | error | 中断 |
+| `addTable` の `content.headers` が無い | error | 中断 |
+| 画像パスがローカルで存在しない | warn | 該当要素はスキップされる |
+| マークアップの開閉不一致 | warn | 文字として出る旨を報告 |
+
+---
+
+## 7.0 TEMPLATE — `generate.js`
+
+以下をそのまま `generate.js` として書き出す。`/* __SLIDE_SPEC__ */` を SPEC のJSONリテラルに置換すること。
 
 ```javascript
 'use strict';
 /**
- * PptxGenJS スライド自動生成スクリプト
+ * PptxGenJS スライド生成スクリプト（デザイン構造化JSON レンダラー）
+ * 入力: subagent-design が出力した SPEC（meta + slides）
  * 依存: npm install pptxgenjs
  * 実行: node generate.js
  */
 
 const PptxGenJS = require('pptxgenjs');
+const pptx = new PptxGenJS();
 
-// ─── 1. 定数 ────────────────────────────────────────────
-const PX = n => +(n / 96).toFixed(4);
+// ─── 1. SPEC（subagent-design の出力をそのまま埋め込む）─────────
+const SPEC = /* __SLIDE_SPEC__ */;
 
-const C = {
-  blue:    '4285F4',
-  red:     'EA4335',
-  yellow:  'FBBC04',
-  green:   '34A853',
-  text:    '333333',
-  white:   'FFFFFF',
-  bgGray:  'F8F9FA',
-  faint:   'E8EAED',
-  laneBg:  'F5F5F3',
-  border:  'DADCE0',
-  neutral: '9E9E9E',
-  ghost:   'EFEFED',
+// ─── 2. テーマ解決 ──────────────────────────────────────────
+const PALETTE = {
+  blue: '4285F4', red: 'EA4335', yellow: 'FBBC04', green: '34A853',
+  text: '333333', white: 'FFFFFF', bgGray: 'F8F9FA', faint: 'E8EAED',
+  laneBg: 'F5F5F3', border: 'DADCE0', neutral: '9E9E9E', ghost: 'EFEFED',
 };
 
-const F = 'Arial';
-const FS = {
-  title: 45, date: 16, secTitle: 38, cTitle: 28,
-  subhead: 18, body: 14, footer: 9,
-  lane: 13, small: 10, step: 14, ghost: 180,
-};
+const META = SPEC.meta || {};
+const THEME = META.theme || {};
+const C = Object.assign({}, PALETTE, THEME.colors || {});
+const ACCENT = String(THEME.accent || C.blue).replace(/^#/, '').toUpperCase();
+const F = THEME.font || 'Meiryo';
+const LANG = 'ja-JP';
+const LOGO = THEME.logo || '';
+const OUT = META.output || 'presentation.pptx';
 
-const LOGO = 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/Google_2015_logo.svg/1024px-Google_2015_logo.svg.png';
-const FOOTER_TEXT = `© ${new Date().getFullYear()} Your Organization`;
-const OUTPUT_FILE = 'presentation.pptx';
-
-// ─── 2. 位置定義 (px) ────────────────────────────────────
-const POS = {
-  title:   { logo: { l:55, t:105, w:135, h:45 }, text: { l:50, t:230, w:800, h:90 }, date: { l:50, t:340, w:250, h:40 } },
-  header:  { logo: { r:20, t:20, w:75, h:25 }, titleText: { l:25, t:60, w:830, h:65 }, underline: { l:25, t:128, w:260, h:4 }, subhead: { l:25, t:140, w:830, h:30 } },
-  content: { body: { l:25, t:172, w:910, h:303 }, colL: { l:25, t:172, w:440, h:303 }, colR: { l:495, t:172, w:440, h:303 } },
-  compare: { leftBox: { l:25, t:172, w:430, h:303 }, rightBox: { l:505, t:172, w:430, h:303 } },
-  section: { ghost: { l:35, t:120, w:300, h:200 }, text: { l:55, t:230, w:840, h:80 } },
-  footer:  { left: { l:15, t:505, w:250, h:20 }, right: { r:15, t:505, w:50, h:20 } },
-  bar:     { l:0, t:534, w:960, h:6 },
-};
-
-function px2rect(pos, dy = 0) {
-  const l = pos.r !== undefined ? 960 - pos.r - pos.w : pos.l;
-  return { x: PX(l), y: PX(pos.t + dy), w: PX(pos.w), h: pos.h ? PX(pos.h) : undefined };
+function col(v) {
+  if (v === undefined || v === null || v === '') return undefined;
+  const k = String(v).replace(/^#/, '');
+  if (k === 'accent') return ACCENT;
+  if (C[k]) return String(C[k]).replace(/^#/, '').toUpperCase();
+  return k.toUpperCase();
 }
 
-const noLine = () => ({ type: 'none' });
-
-// ─── 3. ユーティリティ ────────────────────────────────────
-function addBar(slide) {
-  const r = px2rect(POS.bar);
-  slide.addShape(PptxGenJS.ShapeType.rect, { ...r, fill: { color: C.blue }, line: noLine() });
+function lineOpt(l) {
+  if (!l || l === 'none') return { type: 'none' };
+  if (typeof l === 'string') return { color: col(l), width: 1 };
+  return Object.assign(
+    { color: col(l.color) || C.border, width: Number(l.width || l.pt || 1) },
+    l.dashType ? { dashType: l.dashType } : {}
+  );
 }
 
-function addFooter(slide, pg) {
-  const l = px2rect(POS.footer.left);
-  slide.addText(FOOTER_TEXT, { ...l, fontFace: F, fontSize: FS.footer, color: C.text });
-  if (pg > 0) {
-    const r = px2rect(POS.footer.right);
-    slide.addText(String(pg), { ...r, fontFace: F, fontSize: FS.footer, color: C.blue, align: 'right' });
-  }
-}
-
-function addBarFooter(slide, pg) { addBar(slide); addFooter(slide, pg); }
-
-function addHeader(slide, title) {
-  const logo = px2rect(POS.header.logo);
-  slide.addImage({ path: LOGO, x: logo.x, y: logo.y, w: logo.w, h: logo.h });
-  const t = px2rect(POS.header.titleText);
-  slide.addText(title || '', { ...t, fontFace: F, fontSize: FS.cTitle, bold: true, color: C.text, wrap: true });
-  const u = px2rect(POS.header.underline);
-  slide.addShape(PptxGenJS.ShapeType.rect, { ...u, fill: { color: C.blue }, line: noLine() });
-}
-
-function addSubhead(slide, subhead) {
-  if (!subhead) return 0;
-  const r = px2rect(POS.header.subhead);
-  slide.addText(subhead, { ...r, fontFace: F, fontSize: FS.subhead, color: C.text });
-  return 36;
-}
-
-function parseRuns(s, base = {}) {
-  const bo = { fontFace: F, ...base };
-  const runs = [];
-  let plain = '', i = 0;
-  const flush = () => { if (plain) { runs.push({ text: plain, options: { ...bo } }); plain = ''; } };
+// ─── 3. マークアップパーサ ───────────────────────────────────
+// **太字** / [[アクセント]] / {c:NAME|文字色} / {hl:NAME|マーカー}
+function findClose(s, from, open, close) {
+  let depth = 1, i = from;
   while (i < s.length) {
-    if (s[i] === '[' && s[i + 1] === '[') {
-      const c = s.indexOf(']]', i + 2);
-      if (c !== -1) { flush(); runs.push({ text: s.substring(i + 2, c), options: { ...bo, bold: true, color: C.blue } }); i = c + 2; continue; }
+    if (s.startsWith(open, i)) { depth++; i += open.length; continue; }
+    if (s.startsWith(close, i)) { depth--; if (depth === 0) return i; i += close.length; continue; }
+    i++;
+  }
+  return -1;
+}
+
+function parseRuns(str, base) {
+  const bo = Object.assign({ fontFace: F, lang: LANG }, base || {});
+  const s = String(str == null ? '' : str);
+  const out = [];
+  let plain = '', i = 0;
+  const flush = () => { if (plain) { out.push({ text: plain, options: Object.assign({}, bo) }); plain = ''; } };
+
+  while (i < s.length) {
+    if (s.startsWith('[[', i)) {
+      const c = findClose(s, i + 2, '[[', ']]');
+      if (c !== -1) {
+        flush();
+        out.push.apply(out, parseRuns(s.slice(i + 2, c), Object.assign({}, bo, { bold: true, color: ACCENT })));
+        i = c + 2; continue;
+      }
     }
-    if (s[i] === '*' && s[i + 1] === '*') {
-      const c = s.indexOf('**', i + 2);
-      if (c !== -1) { flush(); runs.push({ text: s.substring(i + 2, c), options: { ...bo, bold: true } }); i = c + 2; continue; }
+    if (s.startsWith('**', i)) {
+      const c = s.indexOf('**', i + 2); // 開閉が同記号のためネストは取らない
+      if (c !== -1) {
+        flush();
+        out.push.apply(out, parseRuns(s.slice(i + 2, c), Object.assign({}, bo, { bold: true })));
+        i = c + 2; continue;
+      }
+    }
+    if (s[i] === '{') {
+      const c = findClose(s, i + 1, '{', '}');
+      const bar = s.indexOf('|', i + 1);
+      if (c !== -1 && bar !== -1 && bar < c) {
+        const m = /^(c|hl):([#0-9A-Za-z]+)$/.exec(s.slice(i + 1, bar));
+        if (m) {
+          flush();
+          const opt = m[1] === 'c' ? { color: col(m[2]) } : { highlight: col(m[2]) };
+          out.push.apply(out, parseRuns(s.slice(bar + 1, c), Object.assign({}, bo, opt)));
+          i = c + 1; continue;
+        }
+      }
     }
     plain += s[i]; i++;
   }
   flush();
+  return out.length ? out : [{ text: '', options: bo }];
+}
+
+function makeBullets(items, base) {
+  const bo = Object.assign({ fontFace: F, lang: LANG }, base || {});
+  const runs = [];
+  (items || []).forEach((it, idx) => {
+    if (idx > 0) runs.push({ text: '\n', options: Object.assign({}, bo) });
+    runs.push({ text: '• ', options: Object.assign({}, bo) });
+    runs.push.apply(runs, parseRuns(it, bo));
+  });
   return runs.length ? runs : [{ text: '', options: bo }];
 }
 
-function makeBullets(points) {
-  const base = { fontFace: F, fontSize: FS.body, color: C.text };
-  const runs = [];
-  (points || []).forEach((pt, idx) => {
-    if (idx > 0) runs.push({ text: '\n\n', options: base });
-    runs.push({ text: '• ', options: base });
-    runs.push(...parseRuns(String(pt || ''), base));
+// ─── 4. 要素レンダラー ──────────────────────────────────────
+function box(p) {
+  const o = { x: p.x, y: p.y, w: p.w };
+  if (p.h !== undefined) o.h = p.h;
+  return o;
+}
+
+function textStyle(p) {
+  const o = {
+    fontFace: F, lang: LANG,
+    fontSize: p.fontSize || 14,
+    color: col(p.color) || C.text,
+  };
+  if (p.bold) o.bold = true;
+  if (p.italic) o.italic = true;
+  return o;
+}
+
+function textOpts(p) {
+  const o = Object.assign(box(p), textStyle(p), {
+    align: p.align || 'left',
+    valign: p.valign || 'top',
+    wrap: true,
   });
-  return runs.length ? runs : [{ text: '• —', options: base }];
+  if (p.lineSpacingMultiple) o.lineSpacingMultiple = p.lineSpacingMultiple;
+  if (p.margin !== undefined) o.margin = p.margin;
+  if (p.shrinkText) o.shrinkText = true;
+  if (p.charSpacing) o.charSpacing = p.charSpacing;
+  return o;
 }
 
-// ─── 4. slideData ────────────────────────────────────────
-/* __SLIDE_DATA__ */
-
-// ─── 5. スライド生成関数群 ────────────────────────────────
-function createTitleSlide(slide, data) {
-  slide.background = { color: C.white };
-  const logo = px2rect(POS.title.logo);
-  slide.addImage({ path: LOGO, x: logo.x, y: logo.y, w: logo.w, h: logo.h });
-  const t = px2rect(POS.title.text);
-  slide.addText(data.title || '', { ...t, fontFace: F, fontSize: FS.title, bold: true, color: C.text, wrap: true, valign: 'top' });
-  const d = px2rect(POS.title.date);
-  slide.addText(data.date || '', { ...d, fontFace: F, fontSize: FS.date, color: C.text });
-  addBar(slide);
+function renderText(slide, el) {
+  const p = el.props || {};
+  const fmt = el.format || 'plain';
+  const style = textStyle(p);
+  let body;
+  if (fmt === 'bullets') body = makeBullets(el.content, style);
+  else if (fmt === 'runs') body = parseRuns(el.content, style);
+  else body = String(el.content == null ? '' : el.content);
+  slide.addText(body, textOpts(p));
 }
 
-function createSectionSlide(slide, data, secNum, pg) {
-  slide.background = { color: C.bgGray };
-  const num = String(secNum).padStart(2, '0');
-  const gr = px2rect(POS.section.ghost);
-  slide.addText(num, { ...gr, fontFace: F, fontSize: FS.ghost, bold: true, color: C.ghost, valign: 'middle' });
-  const t = px2rect(POS.section.text);
-  slide.addText(data.title || '', { ...t, fontFace: F, fontSize: FS.secTitle, bold: true, color: C.text, align: 'center', valign: 'middle' });
-  addFooter(slide, pg);
-}
-
-function createContentSlide(slide, data, pg) {
-  slide.background = { color: C.white };
-  addHeader(slide, data.title);
-  const dy = addSubhead(slide, data.subhead);
-  const points = Array.isArray(data.points) ? data.points : [];
-  const isTwo = !!(data.twoColumn || (Array.isArray(data.columns) && data.columns.length === 2));
-
-  if (isTwo) {
-    let L = [], R = [];
-    if (Array.isArray(data.columns) && data.columns.length === 2) {
-      L = data.columns[0] || []; R = data.columns[1] || [];
-    } else {
-      const mid = Math.ceil(points.length / 2);
-      L = points.slice(0, mid); R = points.slice(mid);
-    }
-    const lr = px2rect(POS.content.colL, dy);
-    const rr = px2rect(POS.content.colR, dy);
-    slide.addText(makeBullets(L), { ...lr, wrap: true });
-    slide.addText(makeBullets(R), { ...rr, wrap: true });
-  } else if (points.length > 0) {
-    const br = px2rect(POS.content.body, dy);
-    slide.addText(makeBullets(points), { ...br, wrap: true });
-  }
-  addBarFooter(slide, pg);
-}
-
-function createCompareSlide(slide, data, pg) {
-  slide.background = { color: C.white };
-  addHeader(slide, data.title);
-  const dy = addSubhead(slide, data.subhead);
-
-  [
-    { pos: POS.compare.leftBox,  title: data.leftTitle  || '選択肢A', items: data.leftItems  || [] },
-    { pos: POS.compare.rightBox, title: data.rightTitle || '選択肢B', items: data.rightItems || [] },
-  ].forEach(({ pos, title, items }) => {
-    const r = px2rect(pos, dy);
-    const barH = PX(30), pad = PX(12);
-    slide.addShape(PptxGenJS.ShapeType.rect, { x: r.x, y: r.y, w: r.w, h: r.h, fill: { color: C.laneBg }, line: { color: C.border, pt: 1 } });
-    slide.addShape(PptxGenJS.ShapeType.rect, { x: r.x, y: r.y, w: r.w, h: barH, fill: { color: C.blue }, line: noLine() });
-    slide.addText(title, { x: r.x, y: r.y, w: r.w, h: barH, fontFace: F, fontSize: FS.lane, bold: true, color: C.white, align: 'center', valign: 'middle' });
-    slide.addText(makeBullets(items), { x: r.x + pad, y: r.y + barH + pad, w: r.w - pad * 2, h: r.h - barH - pad * 2, wrap: true });
+function renderShape(slide, el) {
+  const p = el.props || {};
+  const type = (pptx.ShapeType && pptx.ShapeType[el.shape]) || el.shape || 'rect';
+  const o = Object.assign(box(p), {
+    fill: p.fill ? { color: col(p.fill) } : { type: 'none' },
+    line: lineOpt(p.line),
   });
-  addBarFooter(slide, pg);
+  if (p.rectRadius !== undefined) o.rectRadius = p.rectRadius;
+  if (p.rotate !== undefined) o.rotate = p.rotate;
+  if (p.flipH) o.flipH = true;
+  if (p.shadow) o.shadow = { type: 'outer', color: col(p.shadow.color) || '000000', blur: p.shadow.blur || 6, offset: p.shadow.offset || 2, angle: p.shadow.angle || 45, opacity: p.shadow.opacity || 0.2 };
+  slide.addShape(type, o);
 }
 
-function createProcessSlide(slide, data, pg) {
-  slide.background = { color: C.white };
-  addHeader(slide, data.title);
-  const dy = addSubhead(slide, data.subhead);
-  const area = px2rect({ l: 25, t: 172, w: 910, h: 303 }, dy);
-  const steps = Array.isArray(data.steps) ? data.steps : [];
-  const n = Math.max(1, steps.length);
-  const gapY = (area.h - PX(40)) / Math.max(1, n - 1);
-  const cx = area.x + PX(44);
-  const top0 = area.y + PX(10);
-
-  if (n > 1) {
-    slide.addShape(PptxGenJS.ShapeType.rect, { x: cx - PX(1), y: top0 + PX(6), w: PX(2), h: gapY * (n - 1), fill: { color: C.faint }, line: noLine() });
-  }
-  for (let i = 0; i < n; i++) {
-    const cy = top0 + gapY * i;
-    const sz = PX(28);
-    slide.addShape(PptxGenJS.ShapeType.rect, { x: cx - sz / 2, y: cy - sz / 2, w: sz, h: sz, fill: { color: C.white }, line: { color: C.blue, pt: 1 } });
-    slide.addText(String(i + 1), { x: cx - sz / 2, y: cy - sz / 2, w: sz, h: sz, fontFace: F, fontSize: 12, bold: true, color: C.blue, align: 'center', valign: 'middle' });
-    slide.addText(steps[i] || '', { x: cx + PX(28), y: cy - PX(16), w: area.w - PX(70), h: PX(32), fontFace: F, fontSize: FS.step, color: C.text, valign: 'middle' });
-  }
-  addBarFooter(slide, pg);
+function renderImage(slide, el) {
+  const p = el.props || {};
+  const o = box(p);
+  if (p.data) o.data = p.data;
+  else o.path = (p.path === 'LOGO' || !p.path) ? LOGO : p.path;
+  if (!o.path && !o.data) return;
+  if (p.sizing) o.sizing = p.sizing;
+  slide.addImage(o);
 }
 
-function createTimelineSlide(slide, data, pg) {
-  slide.background = { color: C.white };
-  addHeader(slide, data.title);
-  const dy = addSubhead(slide, data.subhead);
-  const area = px2rect({ l: 25, t: 172, w: 910, h: 303 }, dy);
-  const milestones = Array.isArray(data.milestones) ? data.milestones : [];
-  if (!milestones.length) { addBarFooter(slide, pg); return; }
-
-  const inner = PX(60);
-  const baseY = area.y + area.h * 0.55;
-  const leftX = area.x + inner;
-  const rightX = area.x + area.w - inner;
-  const dotR = PX(8);
-  const gap = (rightX - leftX) / Math.max(1, milestones.length - 1);
-
-  slide.addShape(PptxGenJS.ShapeType.rect, { x: leftX, y: baseY - PX(1), w: rightX - leftX, h: PX(2), fill: { color: C.faint }, line: noLine() });
-
-  milestones.forEach((m, i) => {
-    const x = leftX + gap * i;
-    const state = (m.state || 'todo').toLowerCase();
-    const dotFill = state === 'done' ? C.green : C.white;
-    const dotLine = state === 'done' ? noLine() : state === 'next' ? { color: C.yellow, pt: 2 } : { color: C.neutral, pt: 1 };
-    slide.addShape(PptxGenJS.ShapeType.ellipse, { x: x - dotR / 2, y: baseY - dotR / 2, w: dotR, h: dotR, fill: { color: dotFill }, line: dotLine });
-    slide.addText(String(m.label || ''), { x: x - PX(45), y: baseY - PX(40), w: PX(90), h: PX(20), fontFace: F, fontSize: FS.small, bold: true, align: 'center', color: C.text });
-    slide.addText(String(m.date || ''), { x: x - PX(45), y: baseY + PX(8), w: PX(90), h: PX(18), fontFace: F, fontSize: FS.small, color: C.neutral, align: 'center' });
+function renderTable(slide, el) {
+  const p = el.props || {};
+  const src = el.content || {};
+  const headers = src.headers || [];
+  const rows = src.rows || [];
+  const fs = p.fontSize || 14;
+  const cellBase = { fontFace: F, lang: LANG, fontSize: fs, color: col(p.color) || C.text, align: 'center', valign: 'middle' };
+  const body = [];
+  if (headers.length) {
+    body.push(headers.map(h => ({
+      text: String(h == null ? '' : h),
+      options: Object.assign({}, cellBase, { bold: true, color: col(p.headerColor) || C.text, fill: { color: col(p.headerFill) || C.bgGray } }),
+    })));
+  }
+  rows.forEach((row, ri) => {
+    const zebra = p.zebra && ri % 2 === 1 ? { fill: { color: col(p.zebraFill) || C.bgGray } } : {};
+    body.push((headers.length ? headers : row).map((_, ci) => ({
+      text: String(row[ci] == null ? '' : row[ci]),
+      options: Object.assign({}, cellBase, zebra, ci === 0 ? { align: 'left' } : {}),
+    })));
   });
-  addBarFooter(slide, pg);
+  const n = headers.length || (rows[0] || []).length || 1;
+  const o = Object.assign(box(p), {
+    colW: p.colW || Array(n).fill(p.w / n),
+    border: { type: 'solid', pt: 1, color: col(p.borderColor) || C.border },
+    fontFace: F,
+    autoPage: false,
+  });
+  if (p.rowH) o.rowH = p.rowH;
+  slide.addTable(body, o);
 }
 
-function createDiagramSlide(slide, data, pg) {
-  slide.background = { color: C.white };
-  addHeader(slide, data.title);
-  const dy = addSubhead(slide, data.subhead);
-  const area = px2rect({ l: 25, t: 172, w: 910, h: 303 }, dy);
-  const lanes = Array.isArray(data.lanes) ? data.lanes : [];
-  const n = Math.max(1, lanes.length);
-  const laneGap = PX(24), lanePad = PX(10), laneTitleH = PX(30);
-  const cardGap = PX(12), cardMinH = PX(48), cardMaxH = PX(70);
-  const arrowH = PX(10), arrowGap = PX(8);
-  const laneW = (area.w - laneGap * (n - 1)) / n;
-  const cardBoxes = [];
-
-  for (let j = 0; j < n; j++) {
-    const lane = lanes[j] || { title: '', items: [] };
-    const left = area.x + j * (laneW + laneGap);
-    const top = area.y;
-
-    slide.addShape(PptxGenJS.ShapeType.rect, { x: left, y: top, w: laneW, h: laneTitleH, fill: { color: C.laneBg }, line: { color: C.border, pt: 1 } });
-    slide.addText(lane.title || '', { x: left, y: top, w: laneW, h: laneTitleH, fontFace: F, fontSize: FS.lane, bold: true, align: 'center', valign: 'middle', color: C.text });
-
-    const items = Array.isArray(lane.items) ? lane.items : [];
-    const rows = Math.max(1, items.length);
-    const availH = area.h - laneTitleH - lanePad * 2;
-    const cardH = Math.max(cardMinH, Math.min(cardMaxH, (availH - cardGap * (rows - 1)) / rows));
-    const totalH = cardH * rows + cardGap * (rows - 1);
-    const firstTop = top + laneTitleH + lanePad + Math.max(0, (availH - totalH) / 2);
-
-    cardBoxes[j] = [];
-    for (let i = 0; i < rows; i++) {
-      const cardTop = firstTop + i * (cardH + cardGap);
-      const cardLeft = left + lanePad;
-      const cardW = laneW - lanePad * 2;
-      slide.addShape(PptxGenJS.ShapeType.roundRect, { x: cardLeft, y: cardTop, w: cardW, h: cardH, fill: { color: C.white }, line: { color: C.border, pt: 1 }, rectRadius: 0.05 });
-      slide.addText(items[i] || '', { x: cardLeft, y: cardTop, w: cardW, h: cardH, fontFace: F, fontSize: FS.body, color: C.text, align: 'center', valign: 'middle', wrap: true });
-      cardBoxes[j][i] = { x: cardLeft, y: cardTop, w: cardW, h: cardH };
-    }
+function renderElement(slide, el) {
+  switch (el.method) {
+    case 'addText':  renderText(slide, el);  break;
+    case 'addShape': renderShape(slide, el); break;
+    case 'addImage': renderImage(slide, el); break;
+    case 'addTable': renderTable(slide, el); break;
+    default: console.warn(`未対応 method: ${el.method} (id=${el.id})`);
   }
-
-  for (let j = 0; j < n - 1; j++) {
-    const L = cardBoxes[j], R = cardBoxes[j + 1];
-    for (let i = 0; i < Math.max(L.length, R.length); i++) {
-      const a = L[i], b = R[i];
-      if (a && b) {
-        const w = Math.max(0, b.x - (a.x + a.w) - arrowGap * 2);
-        if (w >= PX(8)) {
-          const yMid = ((a.y + a.h / 2) + (b.y + b.h / 2)) / 2;
-          slide.addShape(PptxGenJS.ShapeType.rightArrow, { x: a.x + a.w + arrowGap, y: yMid - arrowH / 2, w, h: arrowH, fill: { color: C.blue }, line: noLine() });
-        }
-      }
-    }
-  }
-  addBarFooter(slide, pg);
 }
 
-function createCardsSlide(slide, data, pg) {
-  slide.background = { color: C.white };
-  addHeader(slide, data.title);
-  const dy = addSubhead(slide, data.subhead);
-  const area = px2rect({ l: 25, t: 172, w: 910, h: 303 }, dy);
-  const items = Array.isArray(data.items) ? data.items : [];
-  const cols = Math.min(3, Math.max(2, Number(data.columns) || (items.length <= 4 ? 2 : 3)));
-  const gap = PX(16);
-  const rows = Math.ceil(items.length / cols);
-  const cardW = (area.w - gap * (cols - 1)) / cols;
-  const cardH = Math.max(PX(92), (area.h - gap * (rows - 1)) / rows);
-
-  for (let idx = 0; idx < items.length; idx++) {
-    const r = Math.floor(idx / cols), col = idx % cols;
-    const left = area.x + col * (cardW + gap);
-    const top = area.y + r * (cardH + gap);
-    slide.addShape(PptxGenJS.ShapeType.roundRect, { x: left, y: top, w: cardW, h: cardH, fill: { color: C.white }, line: { color: C.border, pt: 1 }, rectRadius: 0.05 });
-
-    const obj = items[idx];
-    let textRuns;
-    if (typeof obj === 'string') {
-      textRuns = parseRuns(obj, { fontFace: F, fontSize: FS.body, color: C.text });
-    } else {
-      const title = String(obj.title || '');
-      const desc = String(obj.desc || '');
-      textRuns = [];
-      if (title) textRuns.push({ text: title, options: { fontFace: F, fontSize: FS.body, color: C.text, bold: true } });
-      if (desc) {
-        textRuns.push({ text: '\n', options: { fontFace: F, fontSize: FS.body } });
-        textRuns.push(...parseRuns(desc, { fontFace: F, fontSize: FS.body, color: C.text }));
-      }
-    }
-    slide.addText(textRuns, { x: left, y: top, w: cardW, h: cardH, valign: 'middle', wrap: true });
-  }
-  addBarFooter(slide, pg);
-}
-
-function createTableSlide(slide, data, pg) {
-  slide.background = { color: C.white };
-  addHeader(slide, data.title);
-  const dy = addSubhead(slide, data.subhead);
-  const area = px2rect({ l: 25, t: 172, w: 910, h: 303 }, dy);
-  const headers = Array.isArray(data.headers) ? data.headers : [];
-  const rows = Array.isArray(data.rows) ? data.rows : [];
-
-  if (headers.length > 0) {
-    const tableRows = [];
-    tableRows.push(headers.map(h => ({ text: String(h || ''), options: { bold: true, fontFace: F, fontSize: FS.body, color: C.text, fill: C.bgGray, align: 'center', valign: 'middle' } })));
-    rows.forEach(row => {
-      tableRows.push(headers.map((_, c) => ({ text: String(row[c] || ''), options: { fontFace: F, fontSize: FS.body, color: C.text, align: 'center', valign: 'middle' } })));
-    });
-    slide.addTable(tableRows, { x: area.x, y: area.y, w: area.w, border: { type: 'solid', pt: 1, color: C.border }, fontFace: F });
-  }
-  addBarFooter(slide, pg);
-}
-
-function createProgressSlide(slide, data, pg) {
-  slide.background = { color: C.white };
-  addHeader(slide, data.title);
-  const dy = addSubhead(slide, data.subhead);
-  const area = px2rect({ l: 25, t: 172, w: 910, h: 303 }, dy);
-  const items = Array.isArray(data.items) ? data.items : [];
-  const n = Math.max(1, items.length);
-  const rowH = area.h / n;
-
-  for (let i = 0; i < n; i++) {
-    const y = area.y + i * rowH + PX(6);
-    slide.addText(String(items[i].label || ''), { x: area.x, y, w: PX(150), h: PX(18), fontFace: F, fontSize: FS.body, color: C.text });
-    const barLeft = area.x + PX(160);
-    const barW = area.w - PX(210);
-    slide.addShape(PptxGenJS.ShapeType.rect, { x: barLeft, y, w: barW, h: PX(14), fill: { color: C.faint }, line: noLine() });
-    const p = Math.max(0, Math.min(100, Number(items[i].percent || 0)));
-    if (p > 0) slide.addShape(PptxGenJS.ShapeType.rect, { x: barLeft, y, w: barW * (p / 100), h: PX(14), fill: { color: C.green }, line: noLine() });
-    slide.addText(String(p) + '%', { x: barLeft + barW + PX(6), y: y - PX(1), w: PX(40), h: PX(16), fontFace: F, fontSize: FS.small, color: C.neutral });
-  }
-  addBarFooter(slide, pg);
-}
-
-function createClosingSlide(slide) {
-  slide.background = { color: C.white };
-  const imgW = PX(450);
-  const imgH = imgW * (120 / 361);
-  slide.addImage({ path: LOGO, x: (10 - imgW) / 2, y: (5.625 - imgH) / 2, w: imgW, h: imgH });
-}
-
-// ─── 6. メイン実行 ────────────────────────────────────────
+// ─── 5. メイン実行 ─────────────────────────────────────────
 (async () => {
-  const pptx = new PptxGenJS();
   pptx.layout = 'LAYOUT_WIDE';
-  let pg = 0, secNum = 0;
+  if (META.title) pptx.title = META.title;
 
-  for (const data of slideData) {
+  (SPEC.slides || []).forEach(s => {
     const slide = pptx.addSlide();
-    if (data.type !== 'title' && data.type !== 'closing') pg++;
+    slide.background = { color: col(s.background) || C.white };
+    (s.elements || []).forEach(el => renderElement(slide, el));
+    (s.arrows || []).forEach(el => renderElement(slide, el));
+    if (s.notes) slide.addNotes(String(s.notes));
+  });
 
-    switch (data.type) {
-      case 'title':    createTitleSlide(slide, data);                 break;
-      case 'section':  createSectionSlide(slide, data, ++secNum, pg); break;
-      case 'content':  createContentSlide(slide, data, pg);           break;
-      case 'compare':  createCompareSlide(slide, data, pg);           break;
-      case 'process':  createProcessSlide(slide, data, pg);           break;
-      case 'timeline': createTimelineSlide(slide, data, pg);          break;
-      case 'diagram':  createDiagramSlide(slide, data, pg);           break;
-      case 'cards':    createCardsSlide(slide, data, pg);             break;
-      case 'table':    createTableSlide(slide, data, pg);             break;
-      case 'progress': createProgressSlide(slide, data, pg);          break;
-      case 'closing':  createClosingSlide(slide);                     break;
-    }
-
-    if (data.notes) slide.addNotes(data.notes);
-  }
-
-  await pptx.writeFile({ fileName: OUTPUT_FILE });
-  console.log(`生成完了: ${OUTPUT_FILE}`);
+  await pptx.writeFile({ fileName: OUT });
+  console.log(`生成完了: ${OUT}（${(SPEC.slides || []).length}枚）`);
 })();
 ```
 
 ---
 
-## 実行手順
+## 8.0 実行手順
 
 ```bash
 npm install pptxgenjs
 node generate.js
 ```
 
+`LAYOUT_WIDE` は 13.33" × 7.5"（EMU: 12192000 × 6858000）。SPEC の座標はこの実寸をそのまま使う。
+
 ---
 
-## エラー時の対応
+## 9.0 COMMON_MISTAKES
+
+- **`PptxGenJS.ShapeType` の静的参照**: pptxgenjs v4 では静的プロパティが無い。テンプレートどおり**インスタンスの** `pptx.ShapeType` を使う（文字列 `'rect'` 等でも可）
+- **テンプレート改変**: レンダラー本体を書き換える → SPEC 以外は触らない
+- **座標の補正**: 「はみ出しているから縮める」→ C の責務ではない。preflight で報告するだけ
+- **`fill` 未指定の図形**: テンプレートは `{ type: 'none' }` にする。黒枠・黒塗りが出たら `props.line` / `props.fill` の指定漏れ
+- **画像の相対パス**: `generate.js` を置いたディレクトリ基準。実行ディレクトリを揃える
+- **ロゴURL**: ネットワーク不通だと `addImage` で失敗する。`meta.theme.logo` が空なら画像要素はスキップされる
+
+---
+
+## 10.0 エラー時の対応
 
 | エラー | 対処 |
-|--------|------|
-| `Cannot find module 'pptxgenjs'` | `npm install pptxgenjs` を実行 |
-| `TypeError: Cannot read properties of undefined` | slideData のフィールドが CLAUDE.md スキーマに準拠しているか確認 |
-| `LOGO 取得エラー` | ネットワーク接続を確認、またはローカルパスに差し替え |
-| ファイル書き込み権限エラー | 出力先ディレクトリの権限を確認 |
+|---|---|
+| `Cannot find module 'pptxgenjs'` | `npm install pptxgenjs` |
+| `Cannot read properties of undefined (reading 'rect')` | `PptxGenJS.ShapeType` を静的参照している → `pptx.ShapeType` に修正 |
+| `ENOENT` (画像) | パスを確認、または `meta.theme.logo` を空にして画像なしで生成 |
+| `TypeError: … forEach` | SPEC の `slides` / `elements` が配列でない |
+| 文字化け・豆腐 | `meta.theme.font` が日本語フォント（Meiryo 等）か確認 |
+| 書き込み権限エラー | `meta.output` の保存先ディレクトリ権限を確認 |
+
+---
+
+## 11.0 OUTPUT
+
+`presentation.pptx`（`meta.output` のパス）。
+
+親エージェントへは以下を報告する。
+
+```
+生成完了: <出力パス>
+スライド枚数: N 枚 / ファイルサイズ: X KB
+preflight: error 0件 / warn M件（内容を列挙）
+```

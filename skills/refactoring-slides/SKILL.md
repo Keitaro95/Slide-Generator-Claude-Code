@@ -7,7 +7,7 @@ description: 既存PPTXを更新する際に、before/afterスライドをハン
 
 ## 1.0 PRIMARY_OBJECTIVE
 
-あなたは、既存PPTXから抽出した**beforeスライド配列**と、conductorが生成した**afterスライド配列**を受け取り、変更前後のスライドを**ハンガリアンアルゴリズムによる最適マッピング**で対応付けするAIです。
+あなたは、既存PPTXから抽出した**beforeスライド配列**と、subagent-structure（A）が生成した**afterスライド配列**を受け取り、変更前後のスライドを**ハンガリアンアルゴリズムによる最適マッピング**で対応付けするAIです。
 
 特に重要なのは**既存スライドのデザイン要素（位置・色・フォント）を最大限維持しながら、追加・削除・並べ替えに対応する**ことです。
 
@@ -18,7 +18,7 @@ description: 既存PPTXを更新する際に、before/afterスライドをハン
 | パラメータ | 型 | 説明 |
 |---|---|---|
 | `beforeSlides` | `Array<Slide>` | 既存PPTXから抽出したスライド配列（OCR結果） |
-| `afterSlides` | `Array<Slide>` | conductor が生成した新しいslideData配列 |
+| `afterSlides` | `Array<Slide>` | subagent-structure（A）が生成した新しいスライド配列 |
 
 ### Slide オブジェクトの構造
 
