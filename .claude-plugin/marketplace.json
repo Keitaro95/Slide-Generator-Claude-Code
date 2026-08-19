@@ -1,24 +1,36 @@
 {
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "slide-generator",
+  "description": "Slide Generator — Markdown や既存 PPTX から PowerPoint を自動生成する Claude Code プラグイン",
   "owner": {
-    "name": "keitarosasaki"
-  },
-  "metadata": {
-    "description": "Generate professional PowerPoint presentations from Markdown using a three-stage agent pipeline: structure, design, and render."
+    "name": "Keitaro Sasaki",
+    "url": "https://github.com/Keitaro95"
   },
   "plugins": [
     {
       "name": "slide-generator",
+      "description": "Markdown、既存PPTX、または貼り付けテキストから PowerPoint（.pptx）を生成します。構造化（A）→ デザイン（B）→ 描画（C）の3段サブエージェントパイプラインが、レイアウトと座標を確定し、意味色と強調マークアップを付与し、pptxgenjs でレンダリングします。11種類のスライドレイアウトと、デザインガイドラインファイルによるテーマ統一に対応。Node.js が必要です。",
+      "author": {
+        "name": "Keitaro Sasaki",
+        "url": "https://github.com/Keitaro95"
+      },
       "source": {
         "source": "github",
         "repo": "Keitaro95/Slide-Generator-Claude-Code"
       },
-      "description": "Generate professional PowerPoint presentations from Markdown using a three-stage agent pipeline: structure, design, and render.",
-      "author": {
-        "name": "keitarosasaki"
-      },
-      "keywords": ["powerpoint", "pptx", "slides", "markdown", "presentation", "pptxgenjs"],
-      "category": "productivity"
+      "homepage": "https://github.com/Keitaro95/Slide-Generator-Claude-Code",
+      "license": "MIT",
+      "category": "productivity",
+      "keywords": [
+        "powerpoint",
+        "pptx",
+        "slides",
+        "presentation",
+        "markdown",
+        "pptxgenjs",
+        "deck",
+        "japanese"
+      ]
     }
   ]
 }

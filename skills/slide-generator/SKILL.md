@@ -1,9 +1,22 @@
 ---
 name: slide-generator
-description: mdファイル、またはPPTX+mdメモを受け取り、エージェントワークフローでPowerPoint（.pptx）を生成するスキル。
+description: Markdown・既存PPTX・貼り付けテキストから PowerPoint（.pptx）を生成する。構造化（A）→ デザイン（B）→ 描画（C）の3段サブエージェントパイプラインで、レイアウト・座標・意味色・強調マークアップを確定し pptxgenjs で出力する。「スライドを作って」「パワポにして」「プレゼン資料を生成」「PPTXを更新」などの依頼で使用。
 ---
 
-mdファイル、またはPPTX+mdメモを受け取り、エージェントワークフローでPowerPoint（.pptx）を生成するスキル。
+Markdown ファイル、既存 PPTX + md メモ、または貼り付けテキストを受け取り、
+エージェントワークフローで PowerPoint（.pptx）を生成するスキル。
+
+## 前提条件
+
+`generate.js` の実行に **Node.js（v18 以上）と npm** が必要。
+未インストールの場合は Step C の前にユーザーへ案内する（https://nodejs.org/）。
+依存パッケージ `pptxgenjs` は Step C で自動インストールされる。
+
+## 仕様の参照先
+
+SPEC / slideData スキーマ / インラインマークアップ記法の完全な定義は
+`${CLAUDE_PLUGIN_ROOT}/reference/slidedata-schema.md` にある。
+利用者プロジェクトの `CLAUDE.md` ではないので注意。
 
 ---
 
@@ -56,7 +69,7 @@ mdファイル、またはPPTX+mdメモを受け取り、エージェントワ�
 
 ## SPEC オブジェクト
 
-A → B → C を貫いて受け渡される中央オブジェクト（詳細は `CLAUDE.md`）。
+A → B → C を貫いて受け渡される中央オブジェクト（完全な仕様は `${CLAUDE_PLUGIN_ROOT}/reference/slidedata-schema.md`）。
 
 ```json
 {
@@ -95,7 +108,7 @@ A → B → C を貫いて受け渡される中央オブジェクト（詳細は
  → slideData      → SPEC(JSON)     → SPEC(装飾付き)     → presentation.pptx
 ```
 
-### Step 0 — slide-ocr（`agents/0ocr.md`）※PPTX入力のときのみ
+### Step 0 — slide-ocr（`${CLAUDE_PLUGIN_ROOT}/agents/0ocr.md`）※PPTX入力のときのみ
 
 `slide-ocr` サブエージェントを起動。
 既存PPTXのテキスト・レイアウトを読み取り、slideData 配列の雛形を生成する。
@@ -103,7 +116,7 @@ A → B → C を貫いて受け渡される中央オブジェクト（詳細は
 
 ---
 
-### Step A — subagent-structure（`agents/2coding.md`）
+### Step A — subagent-structure（`${CLAUDE_PLUGIN_ROOT}/agents/2coding.md`）
 
 `subagent-structure` サブエージェントを起動。
 入力テキスト（md / 貼り付けテキスト / Step 0 の OCR 結果）から、**デザイン構造化JSON（SPEC）**を生成する：
@@ -117,7 +130,7 @@ A → B → C を貫いて受け渡される中央オブジェクト（詳細は
 
 ---
 
-### Step B — subagent-design（`agents/3scoring.md`）
+### Step B — subagent-design（`${CLAUDE_PLUGIN_ROOT}/agents/3scoring.md`）
 
 `subagent-design` サブエージェントを起動。
 Step A の SPEC に**デザインだけを上乗せ**する：
@@ -164,7 +177,7 @@ Step B 完了後、`designReport` を必ずユーザーに提示する：
 
 ---
 
-### Step C — subagent-pptxgen（`agents/4pptxgen.md`）
+### Step C — subagent-pptxgen（`${CLAUDE_PLUGIN_ROOT}/agents/4pptxgen.md`）
 
 `subagent-pptxgen` サブエージェントを起動。
 Step B の SPEC をレンダラーテンプレートに埋め込んだ `generate.js` を書き出し、`npm install pptxgenjs && node generate.js` を実行して `presentation.pptx` を出力する。
@@ -174,7 +187,7 @@ Step B の SPEC をレンダラーテンプレートに埋め込んだ `generate
 
 ### 既存PPTX更新時の追加ステップ
 
-既存PPTXを更新する場合（Step 0 でOCRを実行した場合）、Step A の前に **`refactoring-slides`** スキル（`skills/refactoring-slides/SKILL.md`）を呼び出し、before/after スライドのハンガリアンアルゴリズムによる最適マッピングを行う。対応関係は Step A 以降に引き継がれ、既存スライドのデザイン要素を可能な限り維持する。
+既存PPTXを更新する場合（Step 0 でOCRを実行した場合）、Step A の前に **`refactoring-slides`** スキル（`${CLAUDE_PLUGIN_ROOT}/skills/refactoring-slides/SKILL.md`）を呼び出し、before/after スライドのハンガリアンアルゴリズムによる最適マッピングを行う。対応関係は Step A 以降に引き継がれ、既存スライドのデザイン要素を可能な限り維持する。
 
 ---
 

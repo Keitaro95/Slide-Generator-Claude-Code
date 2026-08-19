@@ -1,4 +1,13 @@
-# Slide Generator — CLAUDE.md
+# SPEC / slideData 契約仕様
+
+> **このファイルがパイプライン A / B / C 共通の唯一の正典（single source of truth）です。**
+> プラグインとしてインストールされた場合、実体は
+> `${CLAUDE_PLUGIN_ROOT}/reference/slidedata-schema.md` に置かれます。
+> リポジトリを直接使う場合は `reference/slidedata-schema.md` を参照してください。
+>
+> エージェント（`agents/*.md`）およびスキル（`skills/*/SKILL.md`）は、
+> スキーマの詳細が必要になったときにこのファイルを読み込みます。
+> **利用者のプロジェクトにある `CLAUDE.md` ではありません。**
 
 ## エージェントパイプライン
 
