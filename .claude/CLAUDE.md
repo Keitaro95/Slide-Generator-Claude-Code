@@ -6,45 +6,24 @@
 > プラグインルートに `CLAUDE.md` を置くと `claude plugin validate --strict` が警告を出すため、
 > 意図的に `.claude/CLAUDE.md` に配置しています（プロジェクトコンテキストとしては同様に読み込まれます）。
 
-> **重要**: スライドの仕様（SPEC / slideData スキーマ / インラインマークアップ / PptxGenJS ルール）は
-> このファイルではなく **[`reference/slidedata-schema.md`](../reference/slidedata-schema.md)** が正典です。
-> エージェントもスキルもそちらを参照します。仕様を変更するときは必ずそちらを編集してください。
+リポジトリ構成とパイプラインの概要は [`README.md`](../README.md) を参照してください。
+仕様の正典は [`reference/slidedata-schema.md`](../reference/slidedata-schema.md) です。
 
 ---
 
-## リポジトリ構成
+## 編集時の3原則
 
-```
-.
-├── .claude-plugin/
-│   ├── plugin.json          # プラグインマニフェスト
-│   └── marketplace.json     # マーケットプレイス定義（このリポジトリ自身を配信）
-├── .claude/
-│   └── CLAUDE.md            # このファイル（開発者向け・利用者には配られない）
-├── agents/                  # サブエージェント定義（自動検出）
-│   ├── 0ocr.md              # slide-ocr
-│   ├── 2coding.md           # A: subagent-structure
-│   ├── 3scoring.md          # B: subagent-design
-│   └── 4pptxgen.md          # C: subagent-pptxgen
-├── skills/                  # スキル定義（自動検出）
-│   ├── slide-generator/SKILL.md
-│   └── refactoring-slides/SKILL.md
-├── reference/
-│   └── slidedata-schema.md  # ★ SPEC / slideData 契約仕様（正典）
-├── scripts/
-│   └── validate.sh          # マニフェスト＋コンポーネント検証
-├── LICENSE
-└── README.md
-```
+### 1. 仕様は正典にだけ書く
 
----
+SPEC・`slideData` スキーマ・マークアップ記法・`role` 一覧・座標基準・パレットは
+**`reference/slidedata-schema.md` にのみ**書く。エージェント／スキル側には「どう使うか」だけを書き、
+スキーマ本体をコピーしない。パイプライン図と責務表も正典 §1 が唯一の定義で、
+各エージェントは自分の前後関係を1行触れるだけに留める。
 
-## 編集時のルール
+`agents/c-pptxgen.md` の `generate.js` テンプレートは正典の**実装**です。
+両者が食い違ったら正典が正しい。仕様を変えたら必ずテンプレートも追従させること。
 
-### パス参照は必ずプラグインルート基準にする
-
-エージェント・スキルの本文からリポジトリ内のファイルを参照するときは、
-**必ず `${CLAUDE_PLUGIN_ROOT}` を使う**。
+### 2. パス参照は必ずプラグインルート基準にする
 
 ```markdown
 ✅ `${CLAUDE_PLUGIN_ROOT}/reference/slidedata-schema.md`
@@ -56,21 +35,11 @@
 `${CLAUDE_PLUGIN_ROOT}` はプラグインのインストール先を指す環境変数で、
 commands / agents / skills の本文で展開されます。
 
-### 仕様の二重管理をしない
+### 3. サブエージェントは frontmatter の `name` で起動する
 
-SPEC・slideData スキーマ・マークアップ記法は `reference/slidedata-schema.md` にのみ書く。
-エージェント側には「どう使うか」だけを書き、スキーマ本体をコピーしない。
-
-### サブエージェント名は frontmatter の `name` が正
-
-| ファイル | `name` |
-|---|---|
-| `agents/0ocr.md` | `slide-ocr` |
-| `agents/2coding.md` | `subagent-structure` |
-| `agents/3scoring.md` | `subagent-design` |
-| `agents/4pptxgen.md` | `subagent-pptxgen` |
-
-ファイル名ではなくこの `name` で Agent ツールから起動する。
+`agents/` のファイル名はパイプラインの段（`0-ocr` / `a-structure` / `b-design` / `c-pptxgen`）に
+対応させていますが、Agent ツールから呼ぶときのキーは frontmatter の `name`
+（`slide-ocr` / `subagent-structure` / `subagent-design` / `subagent-pptxgen`）です。
 
 ---
 
@@ -79,13 +48,15 @@ SPEC・slideData スキーマ・マークアップ記法は `reference/slidedata
 変更後は必ずマニフェストとコンポーネントを検証する。
 
 ```sh
-./scripts/validate.sh     # 下記4つをまとめて実行（CI と同じ）
+./scripts/validate.sh     # 4つのターゲットをまとめて検証（CI と同じ）
+```
 
-# 個別に実行する場合
-claude plugin validate . --strict                            # marketplace.json
-claude plugin validate .claude-plugin/plugin.json --strict   # plugin.json
-claude plugin validate ./skills --strict                     # skills/*/SKILL.md
-claude plugin validate ./agents --strict                     # agents/*.md
+`skills/refactoring-slides/SKILL.md` の JS を変更した場合は、実際に走らせて確認する。
+
+```sh
+sed -n '/^```javascript$/,/^```$/p' skills/refactoring-slides/SKILL.md | sed '1d;$d' > /tmp/slide-diff.js
+# /* __BEFORE__ */ /* __AFTER__ */ を配列リテラルに置換してから
+node /tmp/slide-diff.js
 ```
 
 ローカル読み込みで動作確認する場合：
@@ -99,6 +70,6 @@ claude --plugin-dir .
 ## リリース
 
 1. `.claude-plugin/plugin.json` の `version` を semver で更新
-2. `claude plugin validate . --strict` が通ることを確認
+2. `./scripts/validate.sh` が通ることを確認
 3. `claude plugin tag .` でリリースタグ（`slide-generator--vX.Y.Z`）を作成
 4. push

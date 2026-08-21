@@ -5,6 +5,7 @@ description: Markdown・既存PPTX・貼り付けテキストから PowerPoint�
 
 Markdown ファイル、既存 PPTX + md メモ、または貼り付けテキストを受け取り、
 エージェントワークフローで PowerPoint（.pptx）を生成するスキル。
+このファイルは**オーケストレーション（何を聞き、誰を、どの順で呼ぶか）**だけを定める。
 
 ## 前提条件
 
@@ -14,19 +15,17 @@ Markdown ファイル、既存 PPTX + md メモ、または貼り付けテキス
 
 ## 仕様の参照先
 
-SPEC / slideData スキーマ / インラインマークアップ記法の完全な定義は
-`${CLAUDE_PLUGIN_ROOT}/reference/slidedata-schema.md` にある。
+SPEC / slideData スキーマ / インラインマークアップ記法 / 座標基準の完全な定義は
+`${CLAUDE_PLUGIN_ROOT}/reference/slidedata-schema.md` が正典。各エージェントが必要時に読み込む。
 利用者プロジェクトの `CLAUDE.md` ではないので注意。
 
 ---
 
 ## フェーズ0：ユーザー対話（最初に必ず実行）
 
-ワークフローを開始する前に、以下の手順でユーザーから情報を収集する。
-
 ### Step 0-1 — 入力タイプの確認
 
-まず次のいずれかを確認する：
+次のいずれかを確認する：
 
 1. **mdファイル単体** でスライドを新規作成したい
 2. **既存PPTX + mdメモ** でスライドを更新・改善したい
@@ -37,21 +36,21 @@ SPEC / slideData スキーマ / インラインマークアップ記法の完全
 
 ### Step 0-2 — 補足情報の収集
 
-入力を受け取ったら、以下を確認する。未回答・不明な項目だけ聞く。
+入力を受け取ったら以下を確認する。未回答・不明な項目だけ聞く。全部まとめて一度に聞いてもよい。
+**収集した値は右列のとおり SPEC に格納し、後段に渡す**（聞くだけで捨てない）。
 
-| 項目 | 質問例 |
-|------|--------|
-| タイトル | 「スライドのタイトルは？」 |
-| 対象オーディエンス | 「誰向けのスライドですか？（社内・顧客・登壇など）」 |
-| スライド枚数の目安 | 「何枚くらいを想定していますか？（任意）」 |
-| デザインの雰囲気 | 「デザインの方向性はありますか？（シンプル・プロ・カラフルなど）」 |
-| デザインガイドライン | 「デザインガイドラインファイル（例: `design-guidelines.md`）はありますか？指定すると、カラー・フォント・レイアウトなどのルールを全スライドに統一適用します」 |
-| 保存先パス | 「出力ファイルの保存先はどこにしますか？（デフォルト: カレントディレクトリ）」 |
-
-全部まとめて一度に聞いてもよい。ユーザーが既に答えている項目は聞き直さない。
+| 項目 | 質問例 | 渡し先 |
+|------|--------|--------|
+| タイトル | 「スライドのタイトルは？」 | `meta.title` |
+| 対象オーディエンス | 「誰向けのスライドですか？（社内・顧客・登壇など）」 | `meta.audience` → A が説得ラインの選択に使う |
+| スライド枚数の目安 | 「何枚くらいを想定していますか？（任意）」 | `meta.slideBudget` → A が総枚数を ±20% に収める |
+| デザインの雰囲気 | 「デザインの方向性はありますか？（シンプル・プロ・カラフルなど）」 | Step B へ申し送り |
+| デザインガイドライン | 「デザインガイドラインファイル（例: `design-guidelines.md`）はありますか？」 | A（`meta.theme` 初期値）と B の両方にパスを渡す |
+| 保存先パス | 「出力ファイルの保存先は？（デフォルト: カレントディレクトリ）」 | `meta.output` |
 
 > **デザインガイドラインファイルが指定された場合：**
-> ガイドラインに定義されたカラーパレット・フォント・余白・レイアウトルールを全段で厳守する。Step A で `meta.theme` の初期値として読み込み、Step B にもガイドラインファイルのパスを渡すこと（配色・意味色はガイドラインが最優先）。
+> 定義されたカラーパレット・フォント・余白・レイアウトルールを全段で厳守する。
+> Step A で `meta.theme` の初期値として読み込み、Step B にもパスを渡すこと（配色・意味色はガイドラインが最優先）。
 
 ### Step 0-3 — 確認と開始
 
@@ -59,91 +58,40 @@ SPEC / slideData スキーマ / インラインマークアップ記法の完全
 
 ---
 
-## 入力
-
-- mdファイル単体
-- または PPTX + mdメモのセット
-- またはユーザーが直接貼り付けたテキスト
-
----
-
-## SPEC オブジェクト
-
-A → B → C を貫いて受け渡される中央オブジェクト（完全な仕様は `${CLAUDE_PLUGIN_ROOT}/reference/slidedata-schema.md`）。
-
-```json
-{
-  "meta": {
-    "title": "", "date": "", "audience": "", "output": "presentation.pptx",
-    "theme": { "accent": "4285F4", "font": "Meiryo", "logo": "", "footerText": "", "colors": {} }
-  },
-  "slides": [
-    {
-      "slideIndex": 0,
-      "type": "title | section | content | compare | process | timeline | diagram | cards | table | progress | closing",
-      "page": 1,
-      "background": "white",
-      "layout": { "template": "A", "description": "", "regions": {} },
-      "elements": [{ "id": "", "role": "", "method": "addText", "content": "", "format": "plain", "props": {} }],
-      "arrows": [],
-      "notes": "",
-      "boundsCheck": { "allWithinBounds": true, "violations": [] }
-    }
-  ],
-  "designReport": {}
-}
-```
-
-- **A** が `meta` / `slides`（座標・プレーンテキスト）を生成
-- **B** が `elements[].content` にマークアップを付与し `designReport` を追加
-- **C** は SPEC を描画するのみ
-
----
-
-## エージェントワークフロー（A → B → C）
+## エージェントワークフロー
 
 ```
-[Step 0: 0ocr] → A: 2coding.md → B: 3scoring.md → C: 4pptxgen.md
- 既存PPTX読取     構造・レイアウト   色・強調マークアップ  generate.js 実行
- → slideData      → SPEC(JSON)     → SPEC(装飾付き)     → presentation.pptx
+[0] slide-ocr → [A] subagent-structure → (差分算出) → [B] subagent-design → [C] subagent-pptxgen
+ ※PPTX入力時のみ  構造・レイアウト・座標   ※PPTX入力時のみ  色・強調マークアップ   generate.js 実行
 ```
 
-### Step 0 — slide-ocr（`${CLAUDE_PLUGIN_ROOT}/agents/0ocr.md`）※PPTX入力のときのみ
+各段の責務と禁止事項は正典 §1 のとおり。**A は色を塗らず、B は座標を動かさず、C は判断をしない。**
 
-`slide-ocr` サブエージェントを起動。
-既存PPTXのテキスト・レイアウトを読み取り、slideData 配列の雛形を生成する。
-出力は `const slideData = [...]` の JavaScript 配列リテラルのみ。
+### Step 0 — slide-ocr ※PPTX入力のときのみ
 
----
+`slide-ocr` サブエージェント（`${CLAUDE_PLUGIN_ROOT}/agents/0-ocr.md`）を起動。
+既存PPTXのテキスト・レイアウトを読み取り、`slideData` 配列の雛形を生成する。
 
-### Step A — subagent-structure（`${CLAUDE_PLUGIN_ROOT}/agents/2coding.md`）
+### Step A — subagent-structure
 
-`subagent-structure` サブエージェントを起動。
-入力テキスト（md / 貼り付けテキスト / Step 0 の OCR 結果）から、**デザイン構造化JSON（SPEC）**を生成する：
+`subagent-structure` サブエージェント（`${CLAUDE_PLUGIN_ROOT}/agents/a-structure.md`）を起動。
+入力テキスト（md / 貼り付けテキスト / Step 0 の OCR 結果）と Step 0-2 で集めた `meta` を渡し、
+**SPEC**（レイアウト確定・全座標算出済み・プレーンテキスト）を生成させる。
 
-1. **コンテキスト分解・正規化** — 目的・意図・聞き手を把握し、章→節→要点の階層にマッピング
-2. **パターン選定・ストーリー再構築** — 章・節ごとに最適なスライドタイプを選定し、説得ラインへ再配列
-3. **レイアウト確定・座標算出** — テンプレート（A〜H）を選び、全要素の座標を LAYOUT_WIDE（13.33" × 7.5"）上で算術導出
-4. **文字規約の適用** — 字数上限・体言止め・禁止記号
+### Step A' — refactoring-slides ※PPTX入力のときのみ
 
-この段階のテキストは**プレーン**（強調記法なし）。デザインガイドラインファイルが指定されていれば `meta.theme` に反映する。
+`refactoring-slides` スキル（`${CLAUDE_PLUGIN_ROOT}/skills/refactoring-slides/SKILL.md`）を実行し、
+Step 0 の `slideData`（before）と Step A の SPEC（after）の対応関係を算出する。
 
----
+- 差分サマリ（据え置き / 変更 / 削除 / 追加）を**ユーザーに提示する**
+- `deleted` があれば**意図した削除かユーザーに確認**する。意図しない欠落なら Step A に差し戻す
+- 対応関係は Step B に渡し、既存スライドの意味色・強調の踏襲に使わせる
 
-### Step B — subagent-design（`${CLAUDE_PLUGIN_ROOT}/agents/3scoring.md`）
+### Step B — subagent-design
 
-`subagent-design` サブエージェントを起動。
-Step A の SPEC に**デザインだけを上乗せ**する：
-
-| 作業 | 内容 |
-|---|---|
-| 意味色の割り当て | リスク＝赤 / 成果＝緑 / 注意＝黄マーカー / キーメッセージ＝アクセント |
-| 強調マークアップ | `**太字**` `[[アクセント]]` `{c:red\|…}` `{hl:yellow\|…}` を本文に付与 |
-| 図形スタイル | パネル・カード・タイムライン状態色・進捗バー色・テーブル罫線 |
-| 装飾追加 | 山場スライドのみ最大2件（`deco-` プレフィックス） |
-| 統一性点検 | 全ページで同一 role の座標・スタイル・意味色が一致しているか |
-
-**座標は変更しない**（レイアウトは A の確定事項）。強調は1スライド最大3箇所・本文の20%以下。
+`subagent-design` サブエージェント（`${CLAUDE_PLUGIN_ROOT}/agents/b-design.md`）を起動。
+Step A の SPEC に**デザインだけを上乗せ**させる（意味色・強調マークアップ・図形スタイル・装飾・統一性点検）。
+座標は変更させない。
 
 #### デザイン所見のユーザー提示
 
@@ -175,23 +123,15 @@ Step B 完了後、`designReport` を必ずユーザーに提示する：
 
 **ループ上限**: 差し戻しは最大2回。解消しない場合は現状の issues を提示し、続行可否をユーザーに確認する。
 
----
+### Step C — subagent-pptxgen
 
-### Step C — subagent-pptxgen（`${CLAUDE_PLUGIN_ROOT}/agents/4pptxgen.md`）
-
-`subagent-pptxgen` サブエージェントを起動。
-Step B の SPEC をレンダラーテンプレートに埋め込んだ `generate.js` を書き出し、`npm install pptxgenjs && node generate.js` を実行して `presentation.pptx` を出力する。
-実行前に preflight 検証（境界・必須キー・マークアップ開閉）を行い、結果を報告する。
-
----
-
-### 既存PPTX更新時の追加ステップ
-
-既存PPTXを更新する場合（Step 0 でOCRを実行した場合）、Step A の前に **`refactoring-slides`** スキル（`${CLAUDE_PLUGIN_ROOT}/skills/refactoring-slides/SKILL.md`）を呼び出し、before/after スライドのハンガリアンアルゴリズムによる最適マッピングを行う。対応関係は Step A 以降に引き継がれ、既存スライドのデザイン要素を可能な限り維持する。
+`subagent-pptxgen` サブエージェント（`${CLAUDE_PLUGIN_ROOT}/agents/c-pptxgen.md`）を起動。
+Step B の SPEC をレンダラーテンプレートに埋め込んだ `generate.js` を書き出し、
+`npm install pptxgenjs && node generate.js` を実行して出力する。
+実行前の preflight 検証結果（error / warn）を必ず報告させる。
 
 ---
 
 ## 出力
 
-`presentation.pptx` を生成して完了。
-保存先パスをユーザーに伝える。
+`presentation.pptx`（または `meta.output`）を生成して完了。保存先パスをユーザーに伝える。

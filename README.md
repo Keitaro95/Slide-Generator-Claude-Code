@@ -26,7 +26,7 @@ mdファイル、既存PPTX＋mdメモ、または貼り付けテキストを受
 - 11種類のスライドレイアウト（title / section / content / compare / process / timeline / diagram / cards / table / progress / closing）
 - 意味色＋インラインマークアップ（`[[アクセント]]` / `**太字**` / `{c:red|文字色}` / `{hl:yellow|マーカー}`）で本文を装飾
 - デザインガイドラインファイルを指定すると、カラー・フォント・レイアウトを全スライドに統一適用
-- 既存PPTXの更新時は、before/after スライドをハンガリアンアルゴリズムで最適マッピングし、既存デザインを可能な限り維持
+- 既存PPTXの更新時は、更新前後のスライドをハンガリアンアルゴリズムで対応付け、据え置き / 変更 / 削除 / 追加の差分レポートを提示
 
 ## 動作要件
 
@@ -85,21 +85,23 @@ Claude Code のセッション内で、以下を順に実行してください�
 ## エージェントワークフロー
 
 ```
-[Step 0] slide-ocr  →  A: subagent-structure  →  B: subagent-design  →  C: subagent-pptxgen
-既存PPTX読取           構造化・座標算出          色・マークアップ         generate.js 生成＋実行
-→ slideData            → SPEC(JSON)            → SPEC(装飾付き)        → presentation.pptx
+[0] slide-ocr  →  [A] subagent-structure  →  (差分算出)  →  [B] subagent-design  →  [C] subagent-pptxgen
+既存PPTX読取       構造化・座標算出           更新前後の対応    色・マークアップ        generate.js 生成＋実行
+→ slideData        → SPEC                    → 差分レポート    → SPEC(装飾付き)       → presentation.pptx
 ```
 
 各段の責務は明確に分離されています。**A は色を塗らず、B は座標を動かさず、C は判断をしません。**
 
 | 段 | エージェント | 役割 | やらないこと |
 |---|---|---|---|
-| 0 | `slide-ocr`<br>（`agents/0ocr.md`） | 既存PPTX・PDF・画像のテキストとレイアウトを読み取り、`slideData` 配列の雛形を生成 | — |
-| A | `subagent-structure`<br>（`agents/2coding.md`） | コンテキスト分解 → パターン選定 → ストーリー再構築 → レイアウトテンプレート選択 → **全要素の座標算出** → 文字規約適用 | 色・強調の付与 |
-| B | `subagent-design`<br>（`agents/3scoring.md`） | 意味色の割り当て → インラインマークアップ付与 → 図形スタイル調整 → 装飾追加 → 全ページ統一性の点検 → `designReport` 出力 | **座標の変更**、テキストの意味変更 |
-| C | `subagent-pptxgen`<br>（`agents/4pptxgen.md`） | SPEC をレンダラーテンプレートに埋め込み `generate.js` を生成 → preflight検証 → 実行 → `.pptx` 出力 | レイアウト補正、デザイン判断 |
+| 0 | `slide-ocr`<br>（`agents/0-ocr.md`） | 既存PPTX・PDF・画像のテキストとレイアウトを読み取り、`slideData` 配列の雛形を生成 | 装飾の付与、内容の創作 |
+| A | `subagent-structure`<br>（`agents/a-structure.md`） | コンテキスト分解 → パターン選定 → ストーリー再構築 → レイアウトテンプレート選択 → **全要素の座標算出** → 文字規約適用 | 色・強調の付与 |
+| A' | `refactoring-slides`<br>（skill） | 更新前後スライドをハンガリアンアルゴリズムで対応付け、据え置き / 変更 / 削除 / 追加を判定 | 座標・フォントの引き継ぎ（A が再算出するため不可） |
+| B | `subagent-design`<br>（`agents/b-design.md`） | 意味色の割り当て → インラインマークアップ付与 → 図形スタイル調整 → 装飾追加 → 全ページ統一性の点検 → `designReport` 出力 | **座標の変更**、テキストの意味変更 |
+| C | `subagent-pptxgen`<br>（`agents/c-pptxgen.md`） | SPEC をレンダラーテンプレートに埋め込み `generate.js` を生成 → preflight検証 → 実行 → `.pptx` 出力 | レイアウト補正、デザイン判断 |
 
-Step 0 は PPTX 入力のときのみ実行されます。
+Step 0 と A' は PPTX 入力のときのみ実行されます。
+A' で「削除」と判定されたスライドがあれば、意図した削除かを確認します（情報の取りこぼし検知）。
 Step B の完了時にはデザイン調整レポートが提示され、構造的な問題（`error`）が見つかった場合は Step A に差し戻して再計算します（最大2回）。
 
 ## ディレクトリ構成
@@ -109,16 +111,16 @@ Slide-Generator-Claude-Code/
 ├── .claude-plugin/
 │   ├── plugin.json          # プラグインマニフェスト
 │   └── marketplace.json     # マーケットプレイス定義
-├── agents/                  # サブエージェント群
-│   ├── 0ocr.md              # slide-ocr
-│   ├── 2coding.md           # A: subagent-structure
-│   ├── 3scoring.md          # B: subagent-design
-│   └── 4pptxgen.md          # C: subagent-pptxgen
+├── agents/                  # サブエージェント群（ファイル名 = パイプライン段）
+│   ├── 0-ocr.md             # slide-ocr
+│   ├── a-structure.md       # A: subagent-structure
+│   ├── b-design.md          # B: subagent-design
+│   └── c-pptxgen.md         # C: subagent-pptxgen
 ├── skills/
-│   ├── slide-generator/SKILL.md      # メインスキル定義
-│   └── refactoring-slides/SKILL.md   # 既存PPTX更新時のスライド対応付け
+│   ├── slide-generator/SKILL.md      # メインスキル（オーケストレーション）
+│   └── refactoring-slides/SKILL.md   # A': 既存PPTX更新時の差分算出
 ├── reference/
-│   └── slidedata-schema.md  # SPEC・マークアップ・slideDataスキーマ定義（正典）
+│   └── slidedata-schema.md  # SPEC・マークアップ・座標基準・slideDataスキーマ（正典）
 ├── scripts/
 │   └── validate.sh          # マニフェスト・コンポーネント検証
 └── LICENSE

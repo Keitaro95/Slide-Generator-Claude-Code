@@ -9,7 +9,7 @@
   "plugins": [
     {
       "name": "slide-generator",
-      "description": "Markdown、既存PPTX、または貼り付けテキストから PowerPoint（.pptx）を生成します。構造化（A）→ デザイン（B）→ 描画（C）の3段サブエージェントパイプラインが、レイアウトと座標を確定し、意味色と強調マークアップを付与し、pptxgenjs でレンダリングします。11種類のスライドレイアウトと、デザインガイドラインファイルによるテーマ統一に対応。Node.js が必要です。",
+      "description": "Markdown・既存PPTX・貼り付けテキストから PowerPoint（.pptx）を生成。11種類のレイアウトと3段エージェントパイプラインで、座標算出からデザイン・描画までを自動化します。",
       "author": {
         "name": "Keitaro Sasaki",
         "url": "https://github.com/Keitaro95"
@@ -20,17 +20,7 @@
       },
       "homepage": "https://github.com/Keitaro95/Slide-Generator-Claude-Code",
       "license": "MIT",
-      "category": "productivity",
-      "keywords": [
-        "powerpoint",
-        "pptx",
-        "slides",
-        "presentation",
-        "markdown",
-        "pptxgenjs",
-        "deck",
-        "japanese"
-      ]
+      "category": "productivity"
     }
   ]
 }
